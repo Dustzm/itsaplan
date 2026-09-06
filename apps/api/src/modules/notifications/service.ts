@@ -234,6 +234,7 @@ export interface NotificationFilters {
   projectId?: number;
   includeRead?: boolean;
   includeSnoozed?: boolean;
+  mcpOnly?: boolean;
 }
 
 function mapRow(r: {
@@ -291,6 +292,7 @@ export async function listNotifications(
   if (f.types && f.types.length) conds.push(inArray(notification.type, f.types));
   if (f.fromUserId) conds.push(eq(notification.actorUserId, f.fromUserId));
   if (f.projectId != null) conds.push(eq(notification.projectId, f.projectId));
+  if (f.mcpOnly) conds.push(eq(project.mcpEnabled, true));
   if (f.includeRead === false) conds.push(isNull(notification.readAt));
   if (!f.includeSnoozed)
     conds.push(or(isNull(notification.snoozedUntil), lt(notification.snoozedUntil, sql`now()`))!);
@@ -342,16 +344,22 @@ export async function listNotifications(
 
 // The number of unread, non-snoozed notifications for the inbox badge, optionally
 // scoped to one project. Counts only what listNotifications shows.
-export async function unreadCount(userId: string, projectId?: number): Promise<number> {
+export async function unreadCount(
+  userId: string,
+  projectId?: number,
+  mcpOnly = false,
+): Promise<number> {
   const conds = [
     eq(notification.userId, userId),
     isNull(notification.readAt),
     or(isNull(notification.snoozedUntil), lt(notification.snoozedUntil, sql`now()`)),
   ];
   if (projectId != null) conds.push(eq(notification.projectId, projectId));
+  if (mcpOnly) conds.push(eq(project.mcpEnabled, true));
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(notification)
+    .innerJoin(project, eq(project.id, notification.projectId))
     .innerJoin(
       projectMember,
       and(eq(projectMember.projectId, notification.projectId), eq(projectMember.userId, userId)),

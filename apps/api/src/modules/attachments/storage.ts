@@ -89,6 +89,16 @@ export async function assertAttachmentFileAllowed(
   }
 }
 
+export function decodeAttachmentBase64(value: string): Buffer {
+  const normalized = value.replace(/\s/g, '');
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+  const bytes = Buffer.from(normalized, 'base64');
+  if (bytes.length === 0 || bytes.toString('base64') !== padded) {
+    throw new HttpError(400, 'contentBase64 must contain valid base64-encoded file content');
+  }
+  return bytes;
+}
+
 export function safeAttachmentFilename(input: string, fallback = 'file'): string {
   const basename = input.split(/[\\/]/).pop() ?? '';
   const printable = [...basename]

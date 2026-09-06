@@ -29,6 +29,13 @@ checklists and their items.
 search_issues and list_issues are for finding issues by text or by field, not for
 resolving an identifier.
 
+## Personal context
+
+When the person asks about "my" work, call get_current_user, then list_projects,
+then list_issues for each relevant project with assigneeUserId set to that user's
+id. list_notifications and get_unread_notification_count read that user's inbox
+directly and need no user id.
+
 ## Columns and state
 
 Column names are chosen per project and cannot be assumed. The stable part is the
