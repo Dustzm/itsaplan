@@ -17,7 +17,6 @@ import {
   useCreateNoteBoard,
   useRenameNoteBoard,
   useDeleteNoteBoard,
-  flattenBoardPages,
 } from './services/noteBoards.service';
 import { useNoteBoardMru, type MruEntry } from './hooks/useNoteBoardMru';
 import type { NewBoardVisibility } from './utils/visibility';
@@ -43,10 +42,8 @@ export default function NotesPage() {
   const { can } = usePermissions();
 
   const { entries: mru, record, remove: removeMru } = useNoteBoardMru(projectKey);
-  // The first page of the switcher list, reused to top up the tabs. Shares its
-  // cache with the switcher's empty-query page.
+  // The switcher's unfiltered list, reused to top up the tabs and sharing its cache.
   const seedQuery = useNoteBoardSearch(projectKey, '');
-  const seed = flattenBoardPages(seedQuery.data?.pages);
 
   const createBoard = useCreateNoteBoard(projectKey);
   const renameBoard = useRenameNoteBoard(projectKey);
@@ -55,14 +52,14 @@ export default function NotesPage() {
   const tabs = useMemo<MruEntry[]>(() => {
     const result = [...mru];
     const seen = new Set(mru.map((e) => e.id));
-    for (const b of seed) {
+    for (const b of seedQuery.data ?? []) {
       if (result.length >= MAX_TABS) break;
       if (seen.has(b.id)) continue;
       result.push({ id: b.id, name: b.name, visibility: b.visibility });
       seen.add(b.id);
     }
     return result;
-  }, [mru, seed]);
+  }, [mru, seedQuery.data]);
 
   const routeId = params.boardId ? Number(params.boardId) : null;
   const activeBoardId = routeId ?? tabs[0]?.id ?? null;

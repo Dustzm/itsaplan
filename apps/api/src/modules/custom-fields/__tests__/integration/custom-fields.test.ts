@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { authedApi, type Api } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
+import { createAgent } from '#tests/helpers/agents';
 
 // Custom fields belong to a project. A field with issueTypeId null is
 // project-wide; a field with issueTypeId set applies only to issues of that
@@ -416,9 +417,7 @@ describe('custom-fields', () => {
     it('narrows a member scope and clears only the members it no longer allows', async () => {
       const { asOwner, ownerUserId, issueId } = await setupWithIssue();
       const agent = (
-        await asOwner
-          .projects({ projectKey: 'MKT' })
-          ['ai-agents'].post({ name: 'Bot', username: 'bot', kind: 'external' })
+        await createAgent(asOwner, 'MKT', { name: 'Bot', username: 'bot', kind: 'external' })
       ).data!.agent;
       const forOwner = (
         await fields(asOwner).post({ name: 'Reviewer', fieldType: 'member', memberScope: 'all' })

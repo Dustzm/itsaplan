@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "View permissions",
   "none": "No permissions granted",
   "grantedCount": "{count, plural, one {# permission} other {# permissions}} granted",
   "resources": {
@@ -45,5 +44,7 @@
   },
   "resourceColumn": "Resource",
   "allowed": "allowed",
-  "notAllowed": "not allowed"
+  "notAllowed": "not allowed",
+  "accessHeading": "Access to this project",
+  "joined": "joined {date}"
 }

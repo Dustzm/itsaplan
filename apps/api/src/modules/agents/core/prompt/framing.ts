@@ -147,6 +147,36 @@ export function projectPreamble(project: {
   ].join('\n');
 }
 
+// The projects an agent works in, for a path with no single one of its own: a chat is
+// held with the agent, not inside a project, so it names every project the agent
+// reaches and the key each is addressed by.
+export function projectsPreamble(
+  projects: { key: string; name: string; description: string }[],
+): string {
+  if (projects.length === 0) {
+    return [
+      '## Projects',
+      'You work in no project yet. Your work-item tools reach nothing until someone',
+      'attaches you to one.',
+      '',
+      '',
+    ].join('\n');
+  }
+  if (projects.length === 1) return projectPreamble(projects[0]);
+  return [
+    '## Projects',
+    'You work in these projects. A work-item tool takes the key of the one to act in,',
+    'and its issues are addressed by keys like KEY-123.',
+    '',
+    ...projects.map((p) => {
+      const description = p.description.trim().slice(0, PROJECT_DESCRIPTION_LIMIT);
+      return `- ${p.key} — "${p.name}"${description ? `: ${description}` : ''}`;
+    }),
+    '',
+    '',
+  ].join('\n');
+}
+
 // Only the chat paths carry this: a chart is drawn where the answer is read in the
 // app, while an autonomous run writes its answer into a comment, which draws none.
 export function chartPreamble(): string {

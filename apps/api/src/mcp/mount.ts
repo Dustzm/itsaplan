@@ -30,8 +30,8 @@ export function mountMcp(app: any): void {
   app.post(
     '/mcp',
     async ({ request, body }: { request: Request; body: unknown }) => {
-      const serve = async (credential: McpCredential) => {
-        const server = buildMcpServer(mcpApp, credential);
+      const serve = async (credential: McpCredential, userId: string) => {
+        const server = await buildMcpServer(mcpApp, credential, userId);
         const transport = new WebStandardStreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
         });
@@ -49,7 +49,8 @@ export function mountMcp(app: any): void {
           // A deactivated account is refused here too, the way shared/auth-context.ts
           // refuses it for every planner route. Deactivation arrives over SCIM, after
           // the key was issued.
-          if (session && session.user.active !== false) return serve({ kind: 'api-key', apiKey });
+          if (session && session.user.active !== false)
+            return serve({ kind: 'api-key', apiKey }, session.user.id);
         } catch {
           // Not an API key: let the native OAuth handler validate the bearer token.
         }
@@ -57,7 +58,7 @@ export function mountMcp(app: any): void {
       // withMcpAuth verifies the native OAuth token and returns the standard MCP
       // WWW-Authenticate challenge that clients use for OAuth discovery.
       return withMcpAuth(auth, (_request, oauthSession) =>
-        serve({ kind: 'oauth', accessToken: oauthSession.accessToken }),
+        serve({ kind: 'oauth', accessToken: oauthSession.accessToken }, oauthSession.userId),
       )(request);
     },
     {

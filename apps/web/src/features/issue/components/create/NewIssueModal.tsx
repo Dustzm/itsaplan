@@ -9,11 +9,12 @@ import {
   type ProjectDetail,
 } from '@/lib/api';
 import { type NewIssueDefaults } from '@/utils/project';
+import { parseDate } from '@/utils/dates';
 import { cn } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { useCreateIssue, useSetFieldValue, useUpdateIssue } from '@/services/issues.service';
 import { fieldDefsForType } from '../../utils/fieldDefs';
-import { useFileDragZone } from '../../hooks/useFileDragZone';
+import { useFileDragZone } from '@/hooks/useFileDragZone';
 import { useFilePaste } from '../../hooks/useFilePaste';
 import { useNewIssueAttachments } from '../../hooks/useNewIssueAttachments';
 import {
@@ -22,7 +23,7 @@ import {
   replaceEmbed,
   stripEmbed,
   type Embeddable,
-} from '../../utils/attachmentEmbed';
+} from '@/components/common/editor/attachmentEmbed';
 import { DESCRIPTION_SECTION, OTHER_SECTION, fieldSectionId } from '../../utils/bodySections';
 import { hasFieldValue } from '../../utils/fieldValues';
 import EstimatePill from '../fields/EstimatePill';
@@ -31,7 +32,7 @@ import NewIssueAttachButton from './NewIssueAttachButton';
 import NewIssueAttachmentStrip from './NewIssueAttachmentStrip';
 import NewIssueDropOverlay from './NewIssueDropOverlay';
 import NewIssueTemplatePill from './NewIssueTemplatePill';
-import Modal from '@/components/common/overlay/Modal';
+import Modal, { useModalFullscreen } from '@/components/common/overlay/Modal';
 import NewIssueBody from './NewIssueBody';
 import AssigneeSelect from '@/components/common/fields/AssigneeSelect';
 import DatePill from '@/components/common/fields/DatePill';
@@ -108,7 +109,7 @@ export default function NewIssueModal({
   const [labelIds, setLabelIds] = useState<number[]>(defaults.labelIds ?? []);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
+  const { fullscreen, onToggleFullscreen } = useModalFullscreen();
 
   // Custom fields for the selected type (project-wide + type-scoped), off the
   // scaffold every member already loads. Fields flagged "show in main info" get their
@@ -205,6 +206,12 @@ export default function NewIssueModal({
     const valid = new Set(fieldDefs.filter((d) => !d.showInBody).map((d) => d.id));
     setActiveFieldIds((prev) => prev.filter((id) => valid.has(id)));
   }, [fieldDefs]);
+
+  // The calendars grey out days that would put one date on the wrong side of the
+  // other: the start no later than the due date, the due date no earlier than the
+  // start. Equal dates are allowed.
+  const latestStart = parseDate(dueDate);
+  const earliestDue = parseDate(startDate);
 
   const errorMessage = error ?? attachments.error;
   const bodyDefs = fieldDefs.filter((d) => d.showInBody);
@@ -329,7 +336,7 @@ export default function NewIssueModal({
           />
         )
       }
-      projectKey={project.project.key}
+      scope={project.project.key}
       onClose={onClose}
       // The template pill comes before the title in the DOM, so the title has to
       // claim the focus itself.
@@ -339,7 +346,7 @@ export default function NewIssueModal({
       }}
       wide
       fullscreen={fullscreen}
-      onToggleFullscreen={() => setFullscreen((v) => !v)}
+      onToggleFullscreen={onToggleFullscreen}
       // Halves the dialog's bottom padding: the footer then sits as far from the
       // separator above it as from the dialog edge below.
       className="pb-3"
@@ -443,12 +450,14 @@ export default function NewIssueModal({
             value={startDate || null}
             placeholder={tFields('startDate')}
             onChange={(v) => setStartDate(v ?? '')}
+            disabled={latestStart ? { after: latestStart } : undefined}
           />
 
           <DatePill
             value={dueDate || null}
             placeholder={tFields('dueDate')}
             onChange={(v) => setDueDate(v ?? '')}
+            disabled={earliestDue ? { before: earliestDue } : undefined}
           />
 
           {activeDefs.map((def) => (
@@ -507,7 +516,7 @@ export default function NewIssueModal({
             onAnnotate={annotateAttachment}
             onRemove={removeAttachment}
           />
-          <Button className="ml-auto" disabled={saving || !title.trim()} onClick={submit}>
+          <Button className="ms-auto" disabled={saving || !title.trim()} onClick={submit}>
             {t('submit')}
           </Button>
         </div>

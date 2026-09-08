@@ -6,6 +6,9 @@ import { parseScheduleTimestamp } from './schedule-timestamp';
 type DueSchedule = {
   id: number;
   agentId: number;
+  // The project the schedule's runs work in, which the run carries rather than
+  // reading it back off the agent: an agent works in several projects of its team.
+  projectId: number;
   prompt: string;
   cron: string;
   nextRunAt: string;
@@ -14,7 +17,8 @@ type DueSchedule = {
 export async function enqueueDueSchedules(): Promise<void> {
   await db.transaction(async (tx) => {
     const rows = (await tx.execute(sql`
-      SELECT id, agent_id AS "agentId", prompt, cron, next_run_at AS "nextRunAt"
+      SELECT id, agent_id AS "agentId", project_id AS "projectId", prompt, cron,
+             next_run_at AS "nextRunAt"
       FROM agent_schedule
       WHERE status = 'active' AND next_run_at <= now()
       ORDER BY next_run_at, id
@@ -41,6 +45,7 @@ export async function enqueueDueSchedules(): Promise<void> {
         .insert(agentRun)
         .values({
           agentId: row.agentId,
+          projectId: row.projectId,
           scheduleId: row.id,
           trigger: 'schedule',
           scheduledFor,

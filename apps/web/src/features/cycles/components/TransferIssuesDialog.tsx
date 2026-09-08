@@ -55,7 +55,7 @@ export default function TransferIssuesDialog({
       title={t('title')}
       crumb={cycle.name}
       description={t('description')}
-      projectKey={projectKey}
+      scope={projectKey}
       onClose={onClose}
     >
       <div className="flex flex-col gap-4">

@@ -1,17 +1,4 @@
 {
-  "pager": {
-    "perPage": "Per page",
-    "rowsPerPage": "Rows per page",
-    "range": "{first}-{last} of {total}",
-    "previous": "Previous page",
-    "next": "Next page"
-  },
-  "access": {
-    "owner": "An owner has full access: the role matrix is not consulted.",
-    "role": "Resolved from the \"{role}\" role.",
-    "default": "No role assigned: the default member permissions apply.",
-    "joined": "joined {date}"
-  },
   "providers": {
     "credential": "Password",
     "google": "Google",
@@ -113,8 +100,7 @@
       "views": "Views",
       "agents": "AI agents",
       "skills": "Skills",
-      "tools": "Tools",
-      "integrations": "Integrations"
+      "tools": "Tools"
     },
     "members": "Members",
     "noMembersTitle": "No members",
@@ -124,7 +110,7 @@
     "saved": "Project defaults saved",
     "projectDefaults": "Project defaults",
     "mcpEnabled": "Enable MCP on new projects",
-    "mcpEnabledHint": "A new project is reachable over MCP as soon as it is created."
+    "mcpEnabledHint": "A new project is in its team's MCP reach from the moment it is created."
   },
   "authentication": {
     "saved": "Authentication settings saved",
@@ -203,8 +189,8 @@
     "timeout": "Timeout (s)",
     "optional": "Optional",
     "apiKey": "API key",
-    "projectNotifications": "Project notifications",
-    "projectNotificationsHint": "Let projects deliver their notifications through this provider instead of configuring one of their own. Each project still chooses whether to use it.",
+    "teamNotifications": "Team notifications",
+    "teamNotificationsHint": "Let teams deliver their notifications through this provider instead of configuring one of their own. Each team still chooses whether to use it.",
     "test": "Send test email",
     "testing": "Sending…",
     "testHint": "Send a real message with the current settings without saving them.",

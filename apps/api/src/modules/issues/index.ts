@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { mcpTool } from '#mcp/generate';
 import { noContent } from '#shared/http';
-import { guards, entityGuard, assertMcpAllowed } from '#shared/guards';
+import { guards, entityGuard, assertMcpAllowed, requiresPermission } from '#shared/guards';
 import { authContext } from '#shared/auth-context';
 import { assertPermission, assertProjectOwner, requireUser } from '#shared/access';
 import { HttpError } from '#shared/lib';
@@ -185,17 +185,41 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     workItem: entityGuard('work_items', 'Issue not found', (p) =>
       getIssueProjectId(Number(p.issueId)),
     ),
+    // The checklist and stats routes carry the section they belong to, so turning it
+    // off in the project's settings closes them.
+    issueChecklist: entityGuard(
+      'work_items',
+      'Issue not found',
+      (p) => getIssueProjectId(Number(p.issueId)),
+      'checklists',
+    ),
+    issueStats: entityGuard(
+      'work_items',
+      'Issue not found',
+      (p) => getIssueProjectId(Number(p.issueId)),
+      'issueStats',
+    ),
     developmentIntegration: entityGuard('integrations', 'Issue not found', (p) =>
       getIssueProjectId(Number(p.issueId)),
     ),
-    checklist: entityGuard('work_items', 'Checklist not found', async (p) => {
-      const issueId = await getChecklistIssueId(Number(p.checklistId));
-      return issueId == null ? null : getIssueProjectId(issueId);
-    }),
-    checklistItem: entityGuard('work_items', 'Checklist item not found', async (p) => {
-      const issueId = await getChecklistItemIssueId(Number(p.itemId));
-      return issueId == null ? null : getIssueProjectId(issueId);
-    }),
+    checklist: entityGuard(
+      'work_items',
+      'Checklist not found',
+      async (p) => {
+        const issueId = await getChecklistIssueId(Number(p.checklistId));
+        return issueId == null ? null : getIssueProjectId(issueId);
+      },
+      'checklists',
+    ),
+    checklistItem: entityGuard(
+      'work_items',
+      'Checklist item not found',
+      async (p) => {
+        const issueId = await getChecklistItemIssueId(Number(p.itemId));
+        return issueId == null ? null : getIssueProjectId(issueId);
+      },
+      'checklists',
+    ),
     // A time entry belongs to the member who logged it: they change and delete
     // their own with the work_items edit this asserts. Someone else's is a record
     // of what that member did, so only a project owner may touch it — no
@@ -484,6 +508,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
       detail: {
         summary: 'Get an issue',
         description: 'Get an issue by its numeric id.',
+        ...requiresPermission(['work_items', 'read']),
         ...mcpTool('get_issue'),
       },
     },
@@ -843,7 +868,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
   // after a checklist write rather than the first render.
   .get('/issues/:issueId/checklists', async ({ params }) => listChecklists(params.issueId), {
     params: issueParams,
-    workItem: 'read',
+    issueChecklist: 'read',
     response: { 200: t.Array(ChecklistResponse), ...commonErrors },
     detail: {
       summary: "List an issue's checklists",
@@ -860,7 +885,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       body: checklistTitleBody,
       params: issueParams,
-      workItem: 'edit',
+      issueChecklist: 'edit',
       response: { 201: ChecklistResponse, ...commonErrors },
       detail: {
         summary: 'Add a checklist',
@@ -878,7 +903,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       body: OrderedIdsSchema,
       params: issueParams,
-      workItem: 'edit',
+      issueChecklist: 'edit',
       response: { 200: t.Array(ChecklistResponse), ...commonErrors },
       detail: {
         summary: "Reorder an issue's checklists",
@@ -1205,7 +1230,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
   // stretch.
   .get('/issues/:issueId/timeline', async ({ params }) => listStatusTimeline(params.issueId), {
     params: issueParams,
-    workItem: 'read',
+    issueStats: 'read',
     response: { 200: t.Array(TimelineSegmentResponse), ...commonErrors },
     detail: {
       summary: 'Get an issue status timeline',
@@ -1221,7 +1246,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       params: issueParams,
       query: feedRangeQuery,
-      workItem: 'read',
+      issueStats: 'read',
       response: { 200: t.Array(FeedItemResponse), ...commonErrors },
       detail: {
         summary: 'Get the activity of one timeline stretch',
@@ -1259,7 +1284,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       body: createCommentBody,
       params: issueParams,
-      workItem: 'create',
+      workItem: 'edit',
       response: { 201: FeedItemResponse, ...commonErrors },
       detail: {
         summary: 'Add a comment',

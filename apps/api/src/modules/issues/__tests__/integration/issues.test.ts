@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { authedApi, type Api } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
+import { createAgent } from '#tests/helpers/agents';
 
 // Issues live under a project. Create is /projects/:projectKey/issues (permission
 // guard on :projectKey); the other routes address the issue by its own id
@@ -298,6 +299,38 @@ describe('issues', () => {
       const res = await asOwner
         .projects({ projectKey: 'MKT' })
         .issues.post({ columnId, title: 'Dated', dueDate: '2026-13-45' });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a due date before the start date on create', async () => {
+      const { asOwner, columnId } = await setupProject();
+      const res = await createIssue(asOwner, columnId, {
+        startDate: '2026-09-08',
+        dueDate: '2026-08-30',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('allows a due date equal to the start date', async () => {
+      const { asOwner, columnId } = await setupProject();
+      const res = await createIssue(asOwner, columnId, {
+        startDate: '2026-09-08',
+        dueDate: '2026-09-08',
+      });
+      expect(res.status).toBe(201);
+    });
+
+    it('rejects a due date patched before the stored start date', async () => {
+      const { asOwner, columnId } = await setupProject();
+      const issue = (await createIssue(asOwner, columnId, { startDate: '2026-09-08' })).data!;
+      const res = await asOwner.issues({ issueId: issue.id }).patch({ dueDate: '2026-08-30' });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a start date patched after the stored due date', async () => {
+      const { asOwner, columnId } = await setupProject();
+      const issue = (await createIssue(asOwner, columnId, { dueDate: '2026-08-30' })).data!;
+      const res = await asOwner.issues({ issueId: issue.id }).patch({ startDate: '2026-09-08' });
       expect(res.status).toBe(400);
     });
   });
@@ -618,9 +651,11 @@ describe('issues', () => {
     }
 
     async function createAgentUserId(client: Api) {
-      const res = await client
-        .projects({ projectKey: 'MKT' })
-        ['ai-agents'].post({ name: 'Bot', username: 'bot', kind: 'external' });
+      const res = await createAgent(client, 'MKT', {
+        name: 'Bot',
+        username: 'bot',
+        kind: 'external',
+      });
       return res.data!.agent.userId;
     }
 

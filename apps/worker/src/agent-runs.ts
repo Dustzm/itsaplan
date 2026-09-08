@@ -6,6 +6,9 @@ import { postInternal } from './internal-api';
 
 type Trigger = 'mention' | 'delegation' | 'schedule' | 'manual';
 
+// How long a run waits after the api turned it back for a full queue.
+const DEFERRED_RETRY_SECONDS = 30;
+
 interface ClaimedRun {
   id: number;
   agentId: number;
@@ -52,7 +55,7 @@ async function claimDueRuns(): Promise<ClaimedRun[]> {
     RETURNING
       r.id, r.agent_id AS "agentId", r.issue_id AS "issueId",
       r.schedule_id AS "scheduleId", r.trigger, r.prompt, r.attempts,
-      (SELECT project_id FROM ai_agent a WHERE a.id = r.agent_id) AS "projectId",
+      r.project_id AS "projectId",
       (SELECT user_id FROM ai_agent a WHERE a.id = r.agent_id) AS "agentUserId",
       (SELECT username FROM ai_agent a WHERE a.id = r.agent_id) AS "agentUsername",
       (SELECT p.key || '-' || i.sequence_number FROM issue i JOIN project p ON p.id = i.project_id WHERE i.id = r.issue_id) AS "issueIdentifier",
@@ -66,6 +69,10 @@ async function claimDueRuns(): Promise<ClaimedRun[]> {
   `);
   return rows as unknown as ClaimedRun[];
 }
+
+// The api turned the run back because its team already has as many agents running as it
+// may. Waiting for a slot is not a failed attempt.
+class RunDeferred extends Error {}
 
 // Every write is conditional on the run still being 'pending': a run canceled while it
 // was in flight keeps that outcome instead of being finished or retried.
@@ -84,6 +91,16 @@ async function processRun(run: ClaimedRun): Promise<void> {
       })
       .where(and(eq(agentRun.id, run.id), eq(agentRun.status, 'pending')));
   } catch (error) {
+    if (error instanceof RunDeferred) {
+      await db
+        .update(agentRun)
+        .set({
+          attempts: sql`${agentRun.attempts} - 1`,
+          nextAttemptAt: sql`now() + make_interval(secs => ${DEFERRED_RETRY_SECONDS})`,
+        })
+        .where(and(eq(agentRun.id, run.id), eq(agentRun.status, 'pending')));
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     if (run.attempts < intEnv('AGENT_RUN_MAX_ATTEMPTS', 3)) {
       const delaySeconds = Math.ceil(
@@ -136,6 +153,7 @@ async function executeRun(
     error?: string;
     usage?: { inputTokens: number; outputTokens: number } | null;
   } | null;
+  if (response.status === 503) throw new RunDeferred(body?.error ?? 'No free slot');
   if (!response.ok) throw new Error(body?.error ?? `Agent API returned ${response.status}`);
   return { output: body?.output ?? '', usage: body?.usage ?? null };
 }

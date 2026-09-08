@@ -42,8 +42,9 @@ export interface MentionedUsers {
 
 // The user ids behind the given handles: the project's members addressed by their
 // username, and its agents by theirs. A handle nobody in the project answers to is
-// dropped. A member and an agent cannot share a handle — the two are kept apart at
-// the point either is named.
+// dropped, an agent of the team that does not work in this project included — its
+// handle reads as plain text here. A member and an agent cannot share a handle — the
+// two are kept apart at the point either is named.
 export async function resolveMentionHandles(
   projectId: number,
   handles: string[],
@@ -60,9 +61,11 @@ export async function resolveMentionHandles(
     db
       .select({ userId: aiAgent.userId })
       .from(aiAgent)
-      .where(
-        and(eq(aiAgent.projectId, projectId), inArray(sql`lower(${aiAgent.username})`, handles)),
-      ),
+      .innerJoin(
+        projectMember,
+        and(eq(projectMember.userId, aiAgent.userId), eq(projectMember.projectId, projectId)),
+      )
+      .where(inArray(sql`lower(${aiAgent.username})`, handles)),
   ]);
   return {
     memberIds: memberRows.map((row) => row.userId),

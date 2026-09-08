@@ -1,17 +1,15 @@
 {
   "title": "Serveur MCP",
-  "description": "Connectez des agents IA à ce projet via le Model Context Protocol.",
-  "access": "Accès MCP",
-  "enabled": "Activé",
+  "description": "Connectez des agents IA à ce projet via le Model Context Protocol. Un agent hérite des droits de la clé d'API qu'il utilise.",
   "disabled": "Désactivé",
-  "ownerOnly": "Seul un propriétaire du projet peut activer ou désactiver l'accès MCP.",
-  "toggleAria": "Activer ou désactiver l'accès MCP",
+  "offForTeam": "MCP est désactivé pour l'équipe {team}.",
+  "offForProject": "L'équipe {team} a activé MCP, mais ce projet est désactivé.",
+  "openTeamSettings": "Ouvrir les paramètres MCP de l'équipe",
+  "askManager": "Demandez à un propriétaire ou à un responsable de l'équipe de l'activer :",
   "keyHint": "Créez une clé sur la page <link>Clés d'API</link>, puis remplacez <code>{apiKey}</code> dans l'extrait.",
   "endpoint": "Point d'accès MCP",
   "clientTabsAria": "Client",
   "addToFile": "À ajouter dans <code>{file}</code>",
-  "copyAria": "Copier",
-  "copied": "Copié dans le presse-papiers",
   "notes": {
     "claudeCode": "Lancez ceci dans votre terminal.",
     "vscode": "Nécessite GitHub Copilot.",
@@ -44,9 +42,5 @@
       "authorize": "Autoriser",
       "failed": "Impossible de terminer l'autorisation OAuth."
     }
-  },
-  "toast": {
-    "enabled": "Accès MCP activé",
-    "disabled": "Accès MCP désactivé"
   }
 }

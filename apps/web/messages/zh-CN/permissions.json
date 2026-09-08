@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "查看权限",
   "none": "未授予任何权限",
   "grantedCount": "已授予 {count, plural, other {# 项权限}}",
   "resources": {
@@ -45,5 +44,7 @@
   },
   "resourceColumn": "资源",
   "allowed": "允许",
-  "notAllowed": "不允许"
+  "notAllowed": "不允许",
+  "accessHeading": "对此项目的访问权限",
+  "joined": "加入于 {date}"
 }

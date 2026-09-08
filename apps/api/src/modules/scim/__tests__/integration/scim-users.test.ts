@@ -1,4 +1,6 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
+import { db, teamMember, teamRole } from '@repo/db';
+import { and, eq } from 'drizzle-orm';
 import { app, authedApi } from '#tests/helpers/app';
 import { resetDb } from '#tests/helpers/db';
 import { signUpTestUser } from '#tests/helpers/auth';
@@ -26,6 +28,23 @@ describe('SCIM users', () => {
         meta: { resourceType: 'User' },
       });
       expect(res.data!.id).toBeTruthy();
+    });
+
+    it('gives the provisioned account a team of its own', async () => {
+      const { scim } = await setupScim();
+
+      const res = await scim.scim.v2.Users.post(scimUserBody({ externalId: 'idp-1' }));
+
+      const owned = await db
+        .select({ teamId: teamMember.teamId })
+        .from(teamMember)
+        .where(and(eq(teamMember.userId, res.data!.id), eq(teamMember.role, 'owner')));
+      expect(owned).toHaveLength(1);
+      const roles = await db
+        .select({ isDefault: teamRole.isDefault })
+        .from(teamRole)
+        .where(eq(teamRole.teamId, owned[0].teamId));
+      expect(roles).toEqual([{ isDefault: true }]);
     });
 
     it('accepts a user whose address only comes in the primary email', async () => {

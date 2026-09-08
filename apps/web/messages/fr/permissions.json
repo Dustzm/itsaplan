@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "Voir les permissions",
   "none": "Aucune permission accordée",
   "grantedCount": "{count, plural, one {# permission accordée} other {# permissions accordées}}",
   "resources": {
@@ -45,5 +44,7 @@
   },
   "resourceColumn": "Ressource",
   "allowed": "autorisé",
-  "notAllowed": "non autorisé"
+  "notAllowed": "non autorisé",
+  "accessHeading": "Accès à ce projet",
+  "joined": "arrivé {date}"
 }

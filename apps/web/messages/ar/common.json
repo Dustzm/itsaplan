@@ -51,7 +51,6 @@
         "toggle": "فتح لوحة الأوامر"
       },
       "project": {
-        "switch": "التبديل إلى المشروع ١–٩",
         "new": "مشروع جديد",
         "settings": "فتح إعدادات المشروع"
       },
@@ -63,6 +62,9 @@
       },
       "issue": {
         "new": "مهمة جديدة"
+      },
+      "initiative": {
+        "new": "مبادرة جديدة"
       },
       "view": {
         "kanban": "تخطيط اللوحة",
@@ -171,10 +173,22 @@
     "tableDeleteRow": "حذف صف",
     "tableAddColumn": "إضافة عمود",
     "tableDeleteColumn": "حذف عمود",
-    "tableDelete": "حذف الجدول"
+    "tableDelete": "حذف الجدول",
+    "insertImage": "إدراج صورة",
+    "insertNamed": "إدراج {name}",
+    "noImages": "مفيش صور مرفقة لسه. ارفع صورة من لوحة المرفقات، أو ارميها على المحرر على طول.",
+    "image": "صورة"
   },
   "chart": {
     "download": "احفظ الرسم البياني",
     "downloadFailed": "مقدرناش نحفظ الرسم البياني"
+  },
+  "agent": "وكيل",
+  "pager": {
+    "previous": "الصفحة السابقة",
+    "next": "الصفحة التالية",
+    "page": "الصفحة {number}",
+    "perPage": "لكل صفحة",
+    "range": "{first}-{last} من {total}"
   }
 }

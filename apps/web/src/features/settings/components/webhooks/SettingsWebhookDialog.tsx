@@ -58,7 +58,7 @@ export function SettingsWebhookDialog({
     <Modal
       title={t(initial ? 'dialogEdit' : 'dialogNew')}
       description={t('dialogHint')}
-      projectKey={projectKey}
+      scope={projectKey}
       onClose={onClose}
       wide
     >

@@ -73,21 +73,16 @@ export const noteBoardRoutes = new Elysia({
   .use(guards)
   .get(
     '/projects/:projectKey/note-boards',
-    async ({ project, user, query }) => {
-      return listNoteBoards(project.id, requireUser(user).id, {
-        q: query.q,
-        limit: query.limit ?? 10,
-        offset: query.offset ?? 0,
-      });
-    },
+    ({ project, user, query }) => listNoteBoards(project.id, requireUser(user).id, { q: query.q }),
     {
       permission: ['note_boards', 'read'],
+      feature: 'notes',
       query: listNoteBoardsQuery,
       response: { 200: NoteBoardSummaryListResponse, ...accessErrors },
       detail: {
         summary: "List a project's note boards",
         description:
-          "The boards the caller can see: the project's public boards, the caller's own private ones, and the boards they were granted access to. `q` filters by name; `limit` (10 by default, 50 at most) and `offset` page the result. Cards are omitted — read a board to get them.",
+          "The boards the caller can see: the project's public boards, the caller's own private ones, and the boards they were granted access to, most recently updated first. `q` filters by name. Cards are omitted — read a board to get them.",
         ...mcpTool('list_note_boards'),
       },
     },
@@ -98,6 +93,7 @@ export const noteBoardRoutes = new Elysia({
     async ({ project }) => listNoteBoardAccessCandidates(project.id),
     {
       permission: ['note_boards', 'edit'],
+      feature: 'notes',
       response: { 200: NoteBoardAccessCandidateListResponse, ...accessErrors },
       detail: {
         summary: 'List who a board can be shared with',
@@ -114,6 +110,7 @@ export const noteBoardRoutes = new Elysia({
     },
     {
       permission: ['note_boards', 'read'],
+      feature: 'notes',
       params: noteBoardParams,
       response: { 200: NoteBoardResponse, ...accessErrors },
       detail: {
@@ -140,6 +137,7 @@ export const noteBoardRoutes = new Elysia({
     },
     {
       permission: ['note_boards', 'create'],
+      feature: 'notes',
       body: createNoteBoardBody,
       response: { 201: NoteBoardResponse, ...commonErrors },
       detail: {
@@ -188,6 +186,7 @@ export const noteBoardRoutes = new Elysia({
     },
     {
       permission: ['note_boards', 'edit'],
+      feature: 'notes',
       params: noteBoardParams,
       body: updateNoteBoardBody,
       response: { 200: NoteBoardResponse, ...commonErrors },
@@ -209,6 +208,7 @@ export const noteBoardRoutes = new Elysia({
     },
     {
       permission: ['note_boards', 'delete'],
+      feature: 'notes',
       params: noteBoardParams,
       response: { 204: t.Void(), ...accessErrors },
       detail: {

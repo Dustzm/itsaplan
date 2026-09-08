@@ -23,6 +23,7 @@ import { authContext } from '#shared/auth-context';
 import { requireGod } from '#shared/access';
 import { HttpError } from '#shared/lib';
 import { accessErrors, commonErrors, errors } from '#shared/responses';
+import { paginate } from '#shared/pagination';
 import { noContent } from '#shared/http';
 import { deleteProject } from '#modules/projects/service';
 import {
@@ -30,6 +31,7 @@ import {
   getInstanceProject,
   getInstanceUser,
   listInstanceProjects,
+  listInstanceProjectOptions,
   listInstanceUsers,
   listScimGroups,
   setScimGroupMappings,
@@ -44,9 +46,10 @@ import {
   GoogleSettingsBody,
   GoogleSettingsResponse,
   InstanceProjectDetailResponse,
-  InstanceProjectListResponse,
+  InstanceProjectOptionListResponse,
+  InstanceProjectPageResponse,
   InstanceUserDetailResponse,
-  InstanceUserListResponse,
+  InstanceUserPageResponse,
   OidcSettingsBody,
   OidcSettingsResponse,
   ScimGroupMappingsBody,
@@ -86,8 +89,8 @@ import {
 // God mode: instance-wide administration, open only to the "god" user (the first
 // registered account). It covers how people may register, the mail provider that
 // sends authentication email, the OAuth credentials, and SCIM provisioning. Invites
-// are per project (project_invite), managed in the project's Members section — there
-// is nothing instance-level to add here.
+// are per team (team_invite), managed in the team panel and in the project's Members
+// section — there is nothing instance-level to add here.
 //
 // The settings themselves are owned by @repo/auth, which reads them at sign-up and
 // when sending mail; these routes only expose them over HTTP. Secrets are never
@@ -437,7 +440,7 @@ export const godRoutes = new Elysia({ name: 'god', detail: { tags: ['God'] } })
     },
   })
 
-  .post('/god/updates/check', () => getUpdateStatus(), {
+  .post('/god/updates/check', () => getUpdateStatus(true), {
     response: { 200: UpdateStatusSchema, ...errors(401, 403) },
     detail: {
       summary: 'Check for updates now',
@@ -486,19 +489,16 @@ export const godRoutes = new Elysia({ name: 'god', detail: { tags: ['God'] } })
   .get(
     '/god/users',
     ({ query }) =>
-      listInstanceUsers({
-        search: query.search,
-        kind: query.kind ?? 'human',
-        limit: query.limit ?? 50,
-        offset: query.offset ?? 0,
-      }),
+      paginate(query, (window) =>
+        listInstanceUsers({ search: query.search, kind: query.kind ?? 'human', ...window }),
+      ),
     {
       query: listUsersQuery,
-      response: { 200: InstanceUserListResponse, ...errors(400, 401, 403) },
+      response: { 200: InstanceUserPageResponse, ...errors(400, 401, 403) },
       detail: {
         summary: 'List instance users',
         description:
-          'List one page of accounts, with the global role and sign-in state of each, plus how many match the filters.',
+          'One page of accounts, with the global role and sign-in state of each, plus how many match the filters.',
       },
     },
   )
@@ -583,21 +583,24 @@ export const godRoutes = new Elysia({ name: 'god', detail: { tags: ['God'] } })
   .get(
     '/god/projects',
     ({ query }) =>
-      listInstanceProjects({
-        search: query.search,
-        limit: query.limit ?? 50,
-        offset: query.offset ?? 0,
-      }),
+      paginate(query, (window) => listInstanceProjects({ search: query.search, ...window })),
     {
       query: listProjectsQuery,
-      response: { 200: InstanceProjectListResponse, ...errors(400, 401, 403) },
+      response: { 200: InstanceProjectPageResponse, ...errors(400, 401, 403) },
       detail: {
         summary: 'List instance projects',
-        description:
-          'List one page of projects with what each holds, plus how many match the search.',
+        description: 'One page of projects with what each holds, plus how many match the search.',
       },
     },
   )
+
+  .get('/god/projects/options', () => listInstanceProjectOptions(), {
+    response: { 200: InstanceProjectOptionListResponse, ...errors(401, 403) },
+    detail: {
+      summary: 'List every instance project',
+      description: 'Every project on the instance as id, key and name, for a picker.',
+    },
+  })
 
   .get(
     '/god/projects/:projectId',

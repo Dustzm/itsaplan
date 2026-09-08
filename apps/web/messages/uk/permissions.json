@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "Переглянути права",
   "none": "Прав не надано",
   "grantedCount": "Надано {count, plural, one {# право} few {# права} many {# прав} other {# права}}",
   "resources": {
@@ -45,5 +44,7 @@
   },
   "resourceColumn": "Ресурс",
   "allowed": "дозволено",
-  "notAllowed": "не дозволено"
+  "notAllowed": "не дозволено",
+  "accessHeading": "Доступ до цього проєкту",
+  "joined": "приєднався {date}"
 }

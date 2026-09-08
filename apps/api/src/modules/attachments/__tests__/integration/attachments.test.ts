@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import { api, authedApi } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
+import { clearLimits, setLimits } from '#tests/helpers/limits';
 
 // Attachments feature: metadata in Postgres, bytes in the object store (shared/
 // s3.ts against a real MinIO — see the Tests setup for S3_* env). This is the
@@ -38,6 +39,19 @@ function uploadFile(
 describe('attachments', () => {
   beforeEach(async () => {
     await resetDb();
+  });
+  afterEach(clearLimits);
+
+  it("refuses an upload past the team's storage ceiling", async () => {
+    const { asOwner, issueId } = await setupIssue();
+    setLimits({ maxStorageBytes: 12 });
+
+    expect((await uploadFile(asOwner, issueId, 'a.txt', 'text/plain', 'hello')).status).toBe(201);
+    const past = await uploadFile(asOwner, issueId, 'b.txt', 'text/plain', 'hello world!');
+    expect(past.status).toBe(413);
+
+    // The ceiling counts the bytes already stored, not one file's size.
+    expect((await uploadFile(asOwner, issueId, 'c.txt', 'text/plain', 'fits')).status).toBe(201);
   });
 
   it('uploads bytes, serves them on the public raw route, and deletes them', async () => {

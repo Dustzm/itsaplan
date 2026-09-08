@@ -1,7 +1,9 @@
 import { db, agentRun, agentSchedule, aiAgent, user } from '@repo/db';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { HttpError, iso } from '#shared/lib';
-import { canTriggerAgent, isTriggerableBy } from '../core/service';
+import { HttpError, iso, rethrowDuplicate } from '#shared/lib';
+import { getLimits } from '#shared/limits';
+import { minCronIntervalSeconds } from './cron';
+import { agentWorksInProject, canTriggerAgent, isTriggerableBy } from '../core/service';
 import { contextTokensOf } from '../core/run-queue';
 import { deleteThreadsWhere } from '../core/runtime/memory';
 
@@ -80,12 +82,37 @@ function mapSchedule(row: SelectedSchedule, actorUserId: string): AgentScheduleR
   };
 }
 
+// One page of the project's schedules, newest first, with how many it holds in total.
 export async function listAgentSchedules(
+  projectId: number,
+  actorUserId: string,
+  window: { limit: number; offset: number },
+): Promise<{ items: AgentScheduleRow[]; total: number }> {
+  const [rows, counted] = await Promise.all([
+    baseQuery()
+      .where(eq(agentSchedule.projectId, projectId))
+      .orderBy(desc(agentSchedule.id))
+      .limit(window.limit)
+      .offset(window.offset),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agentSchedule)
+      .where(eq(agentSchedule.projectId, projectId)),
+  ]);
+  return {
+    items: rows.map((row) => mapSchedule(row, actorUserId)),
+    total: counted[0]?.count ?? 0,
+  };
+}
+
+// Every schedule of the project, newest first. Not exposed over HTTP — a project copy
+// carries all of them over.
+export async function listAllAgentSchedules(
   projectId: number,
   actorUserId: string,
 ): Promise<AgentScheduleRow[]> {
   const rows = await baseQuery()
-    .where(eq(aiAgent.projectId, projectId))
+    .where(eq(agentSchedule.projectId, projectId))
     .orderBy(desc(agentSchedule.id));
   return rows.map((row) => mapSchedule(row, actorUserId));
 }
@@ -96,7 +123,7 @@ export async function getAgentSchedule(
   actorUserId: string,
 ): Promise<AgentScheduleRow | null> {
   const rows = await baseQuery().where(
-    and(eq(aiAgent.projectId, projectId), eq(agentSchedule.id, scheduleId)),
+    and(eq(agentSchedule.projectId, projectId), eq(agentSchedule.id, scheduleId)),
   );
   return rows[0] ? mapSchedule(rows[0], actorUserId) : null;
 }
@@ -110,6 +137,16 @@ async function assertTriggerable(agentId: number, actorUserId: string): Promise<
   }
 }
 
+// Refuses a cron that fires more often than the team's floor allows.
+export async function assertScheduleInterval(teamId: number, cron: string): Promise<void> {
+  const { minScheduleIntervalSeconds } = await getLimits({ teamId });
+  if (minScheduleIntervalSeconds === 0) return;
+  if (minCronIntervalSeconds(cron) < minScheduleIntervalSeconds) {
+    const minutes = Math.ceil(minScheduleIntervalSeconds / 60);
+    throw new HttpError(400, `A schedule runs at most once every ${minutes} minutes`);
+  }
+}
+
 export async function createAgentSchedule(input: {
   projectId: number;
   agentId: number;
@@ -120,16 +157,13 @@ export async function createAgentSchedule(input: {
   status: AgentScheduleStatus;
   nextRunAt: Date;
 }): Promise<AgentScheduleRow | null> {
-  const agent = await db
-    .select({ id: aiAgent.id })
-    .from(aiAgent)
-    .where(and(eq(aiAgent.id, input.agentId), eq(aiAgent.projectId, input.projectId)));
-  if (!agent[0]) return null;
+  if (!(await agentWorksInProject(input.agentId, input.projectId))) return null;
   await assertTriggerable(input.agentId, input.actorUserId);
   const [row] = await db
     .insert(agentSchedule)
     .values({
       agentId: input.agentId,
+      projectId: input.projectId,
       name: input.name,
       prompt: input.prompt,
       cron: input.cron,
@@ -137,7 +171,8 @@ export async function createAgentSchedule(input: {
       status: input.status,
       nextRunAt: input.nextRunAt,
     })
-    .returning({ id: agentSchedule.id });
+    .returning({ id: agentSchedule.id })
+    .catch((err) => rethrowDuplicate(err, 'schedule for this agent'));
   return getAgentSchedule(input.projectId, row.id, input.actorUserId);
 }
 
@@ -157,17 +192,14 @@ export async function updateAgentSchedule(
   const current = await getAgentSchedule(projectId, scheduleId, actorUserId);
   if (!current) return null;
   if (patch.agentId !== undefined) {
-    const agent = await db
-      .select({ id: aiAgent.id })
-      .from(aiAgent)
-      .where(and(eq(aiAgent.id, patch.agentId), eq(aiAgent.projectId, projectId)));
-    if (!agent[0]) return null;
+    if (!(await agentWorksInProject(patch.agentId, projectId))) return null;
     await assertTriggerable(patch.agentId, actorUserId);
   }
   await db
     .update(agentSchedule)
     .set({ ...patch, updatedAt: new Date() })
-    .where(eq(agentSchedule.id, scheduleId));
+    .where(eq(agentSchedule.id, scheduleId))
+    .catch((err) => rethrowDuplicate(err, 'schedule for this agent'));
   return getAgentSchedule(projectId, scheduleId, actorUserId);
 }
 
@@ -197,6 +229,7 @@ export async function enqueueManualScheduleRun(
     .insert(agentRun)
     .values({
       agentId: schedule.agentId,
+      projectId,
       scheduleId,
       trigger: 'manual',
       prompt: schedule.prompt,

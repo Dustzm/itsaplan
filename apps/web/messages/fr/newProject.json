@@ -24,7 +24,6 @@
   "copyGroups": {
     "workflow": "Flux de travail",
     "automation": "Automatisation",
-    "project": "Projet",
     "views": "Vues",
     "aiTeam": "Équipe IA",
     "knowledge": "Connaissances"
@@ -39,12 +38,7 @@
     "documents": "Docs",
     "actions": "Actions",
     "configuration": "Configuration",
-    "roles": "Rôles",
-    "notificationProviders": "Fournisseurs de notifications",
     "webhooks": "Webhooks",
-    "integrations": "Intégrations",
-    "tools": "Outils",
-    "skills": "Compétences",
     "agents": "Agents",
     "schedules": "Planifications"
   },

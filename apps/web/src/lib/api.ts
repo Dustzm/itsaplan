@@ -60,8 +60,9 @@ export function markSignedIn(): void {
 
 // A 401 means the session behind the cookie is gone. The proxy only checks that a
 // session cookie exists, so a stale one keeps the app open on a page where every
-// request fails. Signing out is what drops the cookie; with it still set the proxy
-// would bounce /login straight back into the app.
+// request fails. Sign out to drop the cookie, then leave for the expired screen
+// whatever the sign-out answered — a cookie the server declines to clear must not
+// hold the browser in the app.
 // The request is written out rather than calling `signOut()` from @/lib/auth-client:
 // that module reads API_URL from this one, so importing it back here would make a
 // cycle that evaluates auth-client before API_URL is assigned.
@@ -69,15 +70,8 @@ function endSession(): void {
   if (typeof window === 'undefined' || signingOut) return;
   signingOut = true;
   void fetch(`${API_URL}/api/auth/sign-out`, { method: 'POST', credentials: 'include' })
-    .then((res) => {
-      // Leaving with the cookie still set sends the proxy straight back into the
-      // app, where the next 401 starts this over as a fresh page load.
-      if (res.ok) window.location.replace('/login?expired=1');
-      else signingOut = false;
-    })
-    .catch(() => {
-      signingOut = false;
-    });
+    .catch(() => {})
+    .then(() => window.location.replace('/login?expired=1'));
 }
 
 // Turns a failed response into the error to throw, and catches an ended session on
@@ -106,14 +100,168 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export interface Project {
+// Paging. A list route either pages or answers with the whole list, never both, so a
+// paged read always names its window and a whole-list read is a call of its own
+// (listSkillOptions, listConfiguredToolOptions, listNoteBoards, ...).
+export interface PageParams {
+  page: number;
+  pageSize: number;
+}
+
+// One page of a list, with how many rows match in total.
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// The next page of a list read as "show more": there is one while the pages loaded so
+// far do not cover the total. What every useInfiniteQuery over a paged route passes as
+// getNextPageParam.
+export function nextPageParam<T>(last: Page<T>): number | undefined {
+  return last.page * last.pageSize < last.total ? last.page + 1 : undefined;
+}
+
+// The query string a paged read takes: the window, plus whatever filters the list
+// narrows by. A filter left empty is left out.
+function pageQuery(params: PageParams, filters: Record<string, string | undefined> = {}): string {
+  const qs = new URLSearchParams({
+    page: String(params.page),
+    pageSize: String(params.pageSize),
+  });
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) qs.set(key, value);
+  }
+  return `?${qs}`;
+}
+
+// A team the caller belongs to. It owns projects and holds its own member list.
+export interface Team {
+  id: number;
+  name: string;
+  // Whether the team is reachable over MCP at all, set in its MCP section. Off closes
+  // its own resources and every project it owns.
+  mcpEnabled: boolean;
+  // The caller's rank in the team. The API also answers an agent's own key, which reads
+  // 'agent' there; an agent never opens this app, so a person's rank is what arrives.
+  role: TeamRole;
+  // How the caller's own membership came about. A provisioned one is the identity
+  // provider's: the team cannot be left while it stands.
+  source: 'invite' | 'scim';
+  joinedAt: string;
+  projectCount: number;
+  memberCount: number;
+  // How many of those members are owners: the last one cannot leave.
+  ownerCount: number;
+  // The roles the team's projects assign from, the integration credentials they run
+  // on, the agents that work in them, and the skills and tools those agents use.
+  // Counted here so the page shows them beside the section without opening it.
+  roleCount: number;
+  integrationCount: number;
+  agentCount: number;
+  skillCount: number;
+  toolCount: number;
+  createdAt: string;
+}
+
+export type TeamRole = 'owner' | 'manager' | 'member';
+
+// One member of a team: a person, or the bot user of one of its agents. An agent's
+// standing in the team is 'agent' and says nothing about what it may do — that is the
+// role each of its project memberships carries.
+export interface TeamMember {
+  userId: string;
+  name: string;
+  email: string;
+  image: string | null;
+  role: TeamRole | 'agent';
+  // 'scim' when a provisioned group granted this membership. It ends at the identity
+  // provider, so the list does not remove it.
+  source: 'invite' | 'scim';
+  agentId: number | null;
+  username: string | null;
+  joinedAt: string;
+}
+
+// A project the team owns. `isMember` is the caller's own access to it: a team
+// member sees every project of the team, but only opens the ones they belong to.
+export interface TeamProject {
   id: number;
   key: string;
   name: string;
   description: string;
-  // Whether this project is reachable through the MCP server. Toggled by an owner
-  // on the MCP page; gates every MCP tool call scoped to the project.
+  // Whether the team's MCP reach covers this project. Only counts while the team's
+  // own switch is on.
   mcpEnabled: boolean;
+  memberCount: number;
+  owners: { userId: string; name: string; image: string | null }[];
+  isMember: boolean;
+  createdAt: string;
+}
+
+export interface TeamDetail extends Team {
+  // What the caller may do with the resources the team holds for all its projects.
+  // Owners and managers get the full matrix; a member gets the permissions of their
+  // project roles in the team, merged.
+  permissions: Permissions;
+  // The people who run the team, owners first.
+  leads: TeamLead[];
+}
+
+export interface TeamLead {
+  userId: string;
+  name: string;
+  email: string;
+  image: string | null;
+  role: 'owner' | 'manager';
+}
+
+// One project the team owns, as its row in the team panel opens it: how its issues
+// stand, and where the reader stands in it. Its members are a page of their own.
+export interface TeamProjectDetail {
+  lastActivityAt: string | null;
+  stats: AnalyticsStats;
+  // The reader's own membership in the project, null when they only run the team.
+  // A provisioned one ends at the identity provider, so it cannot be left here.
+  viewer: { role: MemberRole; source: 'invite' | 'scim'; permissions: Permissions } | null;
+}
+
+// One member of a project the team owns. The access their membership resolves to is
+// the matrix of the role they hold, which the reader already has from the team's
+// roles.
+export interface TeamProjectMember {
+  userId: string;
+  name: string;
+  email: string;
+  // The handle they are mentioned by, @username. An agent's bot user carries the
+  // agent's handle.
+  username: string | null;
+  image: string | null;
+  isAgent: boolean;
+  role: MemberRole;
+  roleId: number | null;
+  roleName: string | null;
+  // What the member does in the project, and which path their membership came from —
+  // both needed by the panel, which edits the membership from there.
+  description: string;
+  source: 'invite' | 'scim';
+  timezone: string;
+  joinedAt: string;
+}
+
+export interface Project {
+  id: number;
+  teamId: number;
+  teamName: string;
+  key: string;
+  name: string;
+  description: string;
+  // Whether the team's MCP reach covers this project, and whether the team is
+  // reachable over MCP at all. Both are set in the team's MCP section; a tool call
+  // scoped to this project needs both.
+  mcpEnabled: boolean;
+  teamMcpEnabled: boolean;
   // The optional sections, toggled by an owner in Settings -> General. Read through
   // useProjectFeatures, which hides the navigation and the section itself.
   initiativesEnabled: boolean;
@@ -124,6 +272,10 @@ export interface Project {
   subtasksEnabled: boolean;
   checklistsEnabled: boolean;
   issueStatsEnabled: boolean;
+  // The sections this project may use at all. One missing here is not available to
+  // the team: its flag above always reads false and the settings page does not offer
+  // it. Everything is available on a self-hosted instance.
+  availableFeatures: (keyof ProjectFeatures)[];
   // Which estimate kinds the issues carry, set in Settings -> Configuration. Read
   // through useProjectFeatures, which hides the estimate rows and their display
   // properties while a kind is off.
@@ -134,17 +286,14 @@ export interface Project {
   timeLoggingEnabled: boolean;
   createdAt: string;
   // The caller's role in this project. Only present on the /projects list
-  // response (used to gate owner-only actions like deletion); absent on the
-  // create/copy responses.
+  // response; absent on the create/copy responses.
   role?: MemberRole;
-  // The caller's permission matrix in this project. Present only when the list is
-  // requested with permissions (listProjects({ permissions: true })).
-  permissions?: Permissions;
 }
 
 // Parts of a source project the copy can carry over, one key per project settings
-// section. Passed to copyProject as an include map; omitted keys are not copied. The
-// API force-enables dependencies (a view needs its states/types/labels/fields).
+// section. Passed to copyTeamProject as an include map; omitted keys are not
+// copied. The API force-enables dependencies (a view needs its
+// states/types/labels/fields).
 export type CopyProjectIncludeKey =
   | 'states'
   | 'issueTypes'
@@ -155,12 +304,7 @@ export type CopyProjectIncludeKey =
   | 'documents'
   | 'actions'
   | 'configuration'
-  | 'roles'
-  | 'notificationProviders'
   | 'webhooks'
-  | 'integrations'
-  | 'tools'
-  | 'skills'
   | 'agents'
   | 'schedules';
 
@@ -221,7 +365,7 @@ export interface Assignee {
   kind: 'member' | 'agent';
   agentKind: 'external' | 'internal' | null;
   // The user an 'owner'-scoped agent works for: delegating it to anyone else queues a
-  // run its runner never receives. Null for members and project-scoped agents.
+  // run its runner never receives. Null for members and team-scoped agents.
   restrictedToUserId: string | null;
   // Whether this person may read issues and can therefore receive watcher
   // notifications without leaking work-item content.
@@ -234,7 +378,20 @@ export interface AgentFieldTrigger {
   delaySec: number;
 }
 
-// An AI agent on a project: a bot user plus its configuration. `kind` is
+// The same trigger as a read of an agent returns it: the field's name comes along, so
+// a screen can name it without loading the project the field belongs to.
+export interface AgentFieldTriggerRead extends AgentFieldTrigger {
+  name: string;
+}
+
+// A project an agent works in, as its settings list them.
+export interface AgentProject {
+  id: number;
+  key: string;
+  name: string;
+}
+
+// An AI agent of a team: a bot user plus its configuration. `kind` is
 // 'external' (driven by an outside caller through the API) or 'internal' (run by
 // the built-in runtime, so it carries provider/model/instructions/tools). Only an
 // external agent has an API key: `apiKeyStart` is the non-secret prefix for display
@@ -242,7 +399,9 @@ export interface AgentFieldTrigger {
 // on regenerate.
 export interface AiAgent {
   id: number;
-  projectId: number;
+  teamId: number;
+  // The projects of the team the agent works in. One key reaches every one of them.
+  projects: AgentProject[];
   userId: string;
   name: string;
   username: string;
@@ -261,15 +420,13 @@ export interface AiAgent {
   triggerOnAssign: boolean;
   // The member custom fields that start a run when the agent is set into one, each
   // with the seconds its run waits before the agent may pick it up.
-  fieldTriggers: AgentFieldTrigger[];
+  fieldTriggers: AgentFieldTriggerRead[];
   // How long a delegation run waits before the agent may pick it up.
   delegationDelaySec: number;
-  // External-agent authorization role (a project_role id, or null for the default).
-  roleId: number | null;
   // The member who created the agent, and whose runs an 'owner'-scoped runner is
-  // limited to; 'project' scope serves any member's runs.
+  // limited to; 'team' scope serves any member's runs.
   ownerUserId: string | null;
-  runnerScope: 'owner' | 'project';
+  runnerScope: 'owner' | 'team';
   // When the agent's runner last polled, or null while none ever has.
   lastSeenAt: string | null;
   createdAt: string;
@@ -360,13 +517,16 @@ export interface AgentScheduleRun {
 
 // One work-item tool from the server-side catalog. `key` is stored on the agent
 // (grantable actions only); label/description are for the picker. `always` marks the
-// read-only tools that are always granted and shown non-editable.
+// read-only tools that are always granted and shown non-editable. `permission` is the
+// cell of the role matrix the action's route asserts; absent when the route asks only
+// for project membership.
 export interface AgentTool {
   key: string;
   group: 'issues' | 'initiatives' | 'cycles' | 'notes' | 'project';
   label: string;
   description: string;
   always: boolean;
+  permission?: [PermissionResource, PermissionAction];
 }
 
 export interface NewAiAgentInput {
@@ -385,8 +545,8 @@ export interface NewAiAgentInput {
   triggerOnAssign?: boolean;
   fieldTriggers?: AgentFieldTrigger[];
   delegationDelaySec?: number;
-  roleId?: number | null;
-  runnerScope?: 'owner' | 'project';
+  projectIds?: number[];
+  runnerScope?: 'owner' | 'team';
 }
 
 export interface AiAgentPatch {
@@ -404,8 +564,8 @@ export interface AiAgentPatch {
   triggerOnAssign?: boolean;
   fieldTriggers?: AgentFieldTrigger[];
   delegationDelaySec?: number;
-  roleId?: number | null;
-  runnerScope?: 'owner' | 'project';
+  projectIds?: number[];
+  runnerScope?: 'owner' | 'team';
 }
 
 // A field of an integration's credential form (from the catalog). `type` "secret"
@@ -423,7 +583,7 @@ export interface ConfigField {
 // integration whose `tools` are configured on a credential.
 export type IntegrationKind = 'llm' | 'tool';
 
-// An integration the project can store a credential for (server-side catalog).
+// An integration the team can store a credential for (server-side catalog).
 export interface IntegrationMeta {
   key: string;
   label: string;
@@ -442,7 +602,7 @@ export interface ProviderModel {
 // secret fields masked; the real secrets are never returned.
 export interface IntegrationCredential {
   id: number;
-  projectId: number;
+  teamId: number;
   integrationKey: string;
   label: string | null;
   redacted: Record<string, unknown>;
@@ -477,11 +637,12 @@ export interface SkillRef {
   size: number;
 }
 
-// A skill in the project library: a SKILL.md plus optional reference files, given
-// to internal agents. Content lives in the object store; this is the metadata.
+// A skill in the team library: a SKILL.md plus optional reference files, given to
+// the internal agents of the team's projects. Content lives in the object store;
+// this is the metadata.
 export interface AgentSkill {
   id: number;
-  projectId: number;
+  teamId: number;
   name: string;
   description: string;
   source: 'upload' | 'inline' | 'github';
@@ -518,7 +679,7 @@ export interface GithubSkillCandidate {
 // AgentTool, which is a built-in capability tool in the agent's Actions list.)
 export interface ConfiguredTool {
   id: number;
-  projectId: number;
+  teamId: number;
   toolKey: string;
   credentialId: number;
   integrationKey: string;
@@ -1059,14 +1220,23 @@ export interface ProjectFeatures {
   issueStats: boolean;
 }
 
-// A project's settings: MCP reachability and the enabled sections.
+// A project's settings: MCP reachability, which is read-only here, and the enabled
+// sections.
 export interface ProjectSettings {
   mcpEnabled: boolean;
+  teamMcpEnabled: boolean;
   features: ProjectFeatures;
 }
 
-// Per-project notification provider credentials (owner-managed) plus a member's own
-// delivery preferences. The issue events match the inbox notification types.
+// A team's MCP settings: the switch, and which of its projects the reach covers.
+export interface TeamMcpSettings {
+  enabled: boolean;
+  projects: { projectId: number; enabled: boolean }[];
+}
+
+// Per-team notification provider credentials (owner-managed) plus a member's own
+// delivery preferences for a project. The issue events match the inbox notification
+// types.
 export type NotificationEncryption = 'none' | 'ssl' | 'tls';
 
 export interface NotificationEventToggles {
@@ -1079,10 +1249,10 @@ export interface NotificationEventToggles {
 // The provider credentials as read from the API: secrets are never returned, only a
 // `hasX` flag telling whether a value is stored.
 export interface NotificationSettings {
-  // Deliver email through the instance provider instead of the project's own. Its
-  // credentials belong to the instance, so the project only turns it on.
+  // Deliver email through the instance provider instead of the team's own. Its
+  // credentials belong to the instance, so the team only turns it on.
   system: { enabled: boolean };
-  // Whether the instance provider exists and is shared with projects right now.
+  // Whether the instance provider exists and is shared with teams right now.
   systemAvailable: boolean;
   smtp: {
     enabled: boolean;
@@ -1156,6 +1326,37 @@ export interface UpdateStatus {
   releases: Release[];
 }
 
+// The screen shown once after an upgrade. `backup` and `migration` are filled for
+// the instance owner and a team owner only — they name projects, roles and agents
+// across the instance — and are null for everyone else.
+export interface BackupInfo {
+  path: string;
+  sizeBytes: number;
+  createdAt: string;
+  expiresAt: string;
+  migrations: string[];
+}
+
+// What the move to teams did to this instance's data, as the migration recorded it.
+export interface TeamsMigrationReport {
+  version: number;
+  teams: { name: string; projects: { key: string; name: string }[] }[];
+  // Keyed by what was renamed: roles, skills, agents, credentials.
+  renamed: Record<string, { from: string; to: string }[]>;
+  merged: { roles: number; agentTools: number };
+  movedInvites: number;
+  droppedNotificationSettings: string[];
+}
+
+export interface WhatsNew {
+  version: string;
+  pending: boolean;
+  // Every release this user has not seen yet, newest first.
+  releases: Release[];
+  backup: BackupInfo | null;
+  migration: TeamsMigrationReport | null;
+}
+
 // ── Instance administration (god mode) ────────────────────────────────────────
 
 // Who may create an account on this instance.
@@ -1182,7 +1383,7 @@ export interface InstanceAuthSettingsPatch {
 }
 
 // The instance mail provider used for authentication email (password reset, address
-// verification, magic links). Separate from a project's notification provider.
+// verification, magic links). Separate from a team's notification provider.
 // Secrets are never returned, only a `hasX` flag.
 export interface InstanceEmailSettings {
   smtp: {
@@ -1339,13 +1540,6 @@ export interface InstanceUserDetail extends InstanceUser {
 // or both.
 export type InstanceUserKind = 'human' | 'agent' | 'all';
 
-// One page of the directory. `total` counts every account matching the filters, so
-// the pager can show the range and know whether there is a next page.
-export interface InstanceUserPage {
-  items: InstanceUser[];
-  total: number;
-}
-
 // One project in the instance project directory, with what it holds counted across
 // its dependent tables. `lastActivityAt` is the most recent entry in its issue feed.
 export interface InstanceProject {
@@ -1363,7 +1557,6 @@ export interface InstanceProject {
   agentCount: number;
   skillCount: number;
   toolCount: number;
-  integrationCount: number;
   lastActivityAt: string | null;
   createdAt: string;
 }
@@ -1374,12 +1567,15 @@ export interface InstanceProjectMember {
   userId: string;
   name: string;
   email: string;
+  username: string | null;
   image: string | null;
   isAgent: boolean;
   role: MemberRole;
   roleId: number | null;
   roleName: string | null;
   permissions: Permissions;
+  description: string;
+  timezone: string;
   joinedAt: string;
 }
 
@@ -1390,9 +1586,11 @@ export interface InstanceProjectDetail extends InstanceProject {
   roles: { id: number; name: string; isDefault: boolean }[];
 }
 
-export interface InstanceProjectPage {
-  items: InstanceProject[];
-  total: number;
+// One instance project as a picker entry: what the SCIM mapping form needs to name it.
+export interface InstanceProjectOption {
+  id: number;
+  key: string;
+  name: string;
 }
 
 // What the sign-in and sign-up screens read before there is a session. magicLink,
@@ -2126,6 +2324,11 @@ export interface IssueFieldValueInput {
 // usePermissions.
 export interface ProjectViewer {
   role: MemberRole;
+  // The caller's standing in the team that owns the project, null when they are not
+  // a member of it. An owner or manager governs the project's settings alongside the
+  // project's own owner; 'agent' is a bot user reading its own board, which governs
+  // nothing.
+  teamRole: TeamRole | 'agent' | null;
 }
 
 // How an issue carries the initiative and the cycle it belongs to: the id plus
@@ -2540,15 +2743,6 @@ export interface Cycle {
   progress: CycleProgress;
 }
 
-// One page of the finished cycles. `total` counts all of them, so the archive can
-// say how many there are without loading them.
-export interface CyclePage {
-  items: Cycle[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
 export interface NewCycleInput {
   name: string;
   goal?: string;
@@ -2569,20 +2763,11 @@ export const INITIATIVE_SORTS = ['title', 'priority', 'targetDate', 'owner'] as 
 
 export type InitiativeSort = (typeof INITIATIVE_SORTS)[number];
 
-export interface InitiativeListParams {
+export interface InitiativeListParams extends PageParams {
   statuses?: string[];
   search?: string;
   sort?: InitiativeSort;
   dir?: 'asc' | 'desc';
-  page?: number;
-  pageSize?: number;
-}
-
-export interface InitiativePage {
-  items: Initiative[];
-  total: number;
-  page: number;
-  pageSize: number;
 }
 
 // Per-status initiative counts for the list's status tabs.
@@ -2717,15 +2902,33 @@ export interface Role {
   createdAt: string;
 }
 
+// What a role is assigned to. Everything counted here is moved to another role
+// before the role can be deleted.
+export interface RoleUsage {
+  members: number;
+  agents: number;
+  invites: number;
+  // The provisioned group mappings that grant this role.
+  groups: number;
+}
+
 // The resources and actions the role editor renders. Fetched so the UI matches the
-// API's matrix without hardcoding the list in two places.
-export interface PermissionCatalog {
-  resources: PermissionResource[];
+// API's matrix without hardcoding the list in two places. `actions` is the full
+// column set; a resource lists the subset it supports, and a cell outside that
+// subset is always denied.
+export interface PermissionCatalogResource {
+  key: PermissionResource;
   actions: PermissionAction[];
 }
 
-// Project membership: a user's access to a project and their role in it. New
-// members join through invites, not a direct add.
+export interface PermissionCatalog {
+  resources: PermissionCatalogResource[];
+  actions: PermissionAction[];
+}
+
+// Project membership: a user's access to a project and their role in it. A member of
+// the team that owns the project is added straight away; everyone else joins through
+// an invite.
 export type MemberRole = 'owner' | 'member';
 
 export interface MemberRow {
@@ -2744,8 +2947,9 @@ export interface MemberRow {
   roleName: string | null;
   // What this member does in the project, set by an owner. Empty string when unset.
   description: string;
-  // True when this member is an AI agent's bot user. Its role and access are managed
-  // on the AI Agents screen, so this list does not let you reassign or revoke it.
+  // True when this member is an AI agent's bot user. It joins and leaves with its AI
+  // Agent config, so this list does not revoke it; its role is set here like a
+  // person's.
   isAgent: boolean;
   // 'scim' when a provisioned group granted this membership. The sync rewrites such
   // a row on every run, so the role and remove actions are refused for it.
@@ -2753,18 +2957,56 @@ export interface MemberRow {
   createdAt: string;
 }
 
+// Which members a list asks for: everyone, the people, or the AI agents.
+export type MemberKind = 'all' | 'human' | 'agent';
+
+// How many members own the project is what a page window cannot answer, and the last
+// owner's row is the one that may not be removed.
+export type MemberPage = Page<MemberRow> & { ownerCount: number };
+
+// The filters every member list takes, on top of the page window. The search runs on
+// the server, so the page and the total agree.
+export interface MemberListParams extends PageParams {
+  search?: string;
+  kind: MemberKind;
+}
+
+function memberListQuery(params: MemberListParams): string {
+  return pageQuery(params, { kind: params.kind, search: params.search });
+}
+
+// Someone who can be added to a project without an invite: a member of the team that
+// owns it who is not in the project yet.
+export interface MemberCandidate {
+  userId: string;
+  name: string;
+  email: string;
+  username: string | null;
+  image: string | null;
+  isAgent: boolean;
+}
+
 export type InviteStatus = 'pending' | 'accepted' | 'rejected';
 
-// An invite as shown to the owner managing a project's invites: carries the token
-// so the owner can share the link, and who sent it.
+// The rank an invite puts its invitee on in the team. Only a team owner sends one
+// that grants 'owner' or 'manager'.
+export type InviteTeamRole = 'owner' | 'manager' | 'member';
+
+// An invite as shown to whoever manages a team's or a project's invites: carries the
+// token so they can share the link, and who sent it.
 export interface InviteRow {
   id: number;
   token: string;
   email: string;
-  role: MemberRole;
-  // The custom role the invitee joins on (for a member invite). null falls back
-  // to the default role; roleName resolves it for display. An owner invite has
-  // both null.
+  teamRole: InviteTeamRole;
+  // The project the invitee joins along with the team, or null for an invite into
+  // the team alone.
+  projectKey: string | null;
+  projectName: string | null;
+  // Their role in that project. null when the invite names no project.
+  role: MemberRole | null;
+  // The custom role the invitee joins the project on. null falls back to the team's
+  // default role; roleName resolves it for display. A project owner has both null.
   roleId: number | null;
   roleName: string | null;
   status: InviteStatus;
@@ -2782,14 +3024,16 @@ export interface InviteEmailResult {
   emailQueued: boolean;
 }
 
-// An invite as shown to the invitee opening the link: enough project context to
-// decide, never the internal project id.
+// An invite as shown to the invitee opening the link: enough team and project
+// context to decide, never the internal ids.
 export interface InviteView {
   token: string;
-  projectKey: string;
-  projectName: string;
+  teamName: string;
+  projectKey: string | null;
+  projectName: string | null;
   email: string;
-  role: MemberRole;
+  teamRole: InviteTeamRole;
+  role: MemberRole | null;
   roleId: number | null;
   roleName: string | null;
   status: InviteStatus;
@@ -2797,6 +3041,14 @@ export interface InviteView {
   // Whether the invited email already has an account, so the accept screen can
   // open in sign-in mode instead of registration.
   hasAccount: boolean;
+}
+
+// Where an invitee landed once the invite was accepted.
+export interface AcceptedInvite {
+  teamName: string;
+  projectKey: string | null;
+  projectName: string | null;
+  role: MemberRole | null;
 }
 
 // The attachment DTO's url is relative to the API origin; point it at the web
@@ -2872,12 +3124,54 @@ function subtaskQuery(disposition?: SubtaskDisposition): string {
 }
 
 export const api = {
-  listProjects: (opts?: { permissions?: boolean }) =>
-    request<Project[]>(`/projects${opts?.permissions ? '?permissions=true' : ''}`),
-  createProject: (input: { key: string; name: string; description?: string; preset?: string }) =>
-    request<Project>('/projects', { method: 'POST', body: JSON.stringify(input) }),
-  copyProject: (
-    projectKey: string,
+  listTeams: () => request<Team[]>('/teams'),
+  getTeam: (teamId: number) => request<TeamDetail>(`/teams/${teamId}`),
+  // One page of the team's members. `search` matches the name, the address or the
+  // handle.
+  listTeamMembers: (teamId: number, params: MemberListParams) =>
+    request<Page<TeamMember>>(`/teams/${teamId}/members${memberListQuery(params)}`),
+  listTeamProjects: (teamId: number) => request<TeamProject[]>(`/teams/${teamId}/projects`),
+  getTeamProject: (teamId: number, projectId: number) =>
+    request<TeamProjectDetail>(`/teams/${teamId}/projects/${projectId}`),
+  // One page of a project's members. `search` matches the name, the address or the
+  // handle.
+  listTeamProjectMembers: (teamId: number, projectId: number, params: MemberListParams) =>
+    request<Page<TeamProjectMember>>(
+      `/teams/${teamId}/projects/${projectId}/members${memberListQuery(params)}`,
+    ),
+  createTeam: (input: { name: string }) =>
+    request<Team>('/teams', { method: 'POST', body: JSON.stringify(input) }),
+  renameTeam: (teamId: number, input: { name: string }) =>
+    request<Team>(`/teams/${teamId}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  leaveTeam: (teamId: number) => request<void>(`/teams/${teamId}/leave`, { method: 'POST' }),
+  setTeamMemberRole: (teamId: number, userId: string, role: TeamRole) =>
+    request<void>(`/teams/${teamId}/members/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+  removeTeamMember: (teamId: number, userId: string) =>
+    request<void>(`/teams/${teamId}/members/${userId}`, { method: 'DELETE' }),
+  updateTeamMcp: (
+    teamId: number,
+    patch: { enabled?: boolean; projects?: { projectId: number; enabled: boolean }[] },
+  ) =>
+    request<TeamMcpSettings>(`/teams/${teamId}/mcp`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  // The projects a team owns: created, copied, and deleted by the team's own ranks
+  // (owner/manager create and copy, owner deletes) rather than by project membership.
+  createTeamProject: (
+    teamId: number,
+    input: { key: string; name: string; description?: string; preset?: string },
+  ) =>
+    request<Project>(`/teams/${teamId}/projects`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  copyTeamProject: (
+    teamId: number,
+    projectId: number,
     input: {
       key: string;
       name: string;
@@ -2885,15 +3179,27 @@ export const api = {
       include?: Partial<Record<CopyProjectIncludeKey, boolean>>;
     },
   ) =>
-    request<Project>(`/projects/${projectKey}/copy`, {
+    request<Project>(`/teams/${teamId}/projects/${projectId}/copy`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+  updateTeamProject: (
+    teamId: number,
+    projectId: number,
+    patch: { name?: string; description?: string },
+  ) =>
+    request<Project>(`/teams/${teamId}/projects/${projectId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteTeamProject: (teamId: number, projectId: number) =>
+    request<void>(`/teams/${teamId}/projects/${projectId}`, { method: 'DELETE' }),
+  listProjects: () => request<Project[]>('/projects'),
+  createProject: (input: { key: string; name: string; description?: string; preset?: string }) =>
+    request<Project>('/projects', { method: 'POST', body: JSON.stringify(input) }),
   // Update a project's name/description. The key is immutable, so it is not sent.
   updateProject: (projectKey: string, patch: { name?: string; description?: string }) =>
     request<Project>(`/projects/${projectKey}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-  deleteProject: (projectKey: string) =>
-    request<void>(`/projects/${projectKey}`, { method: 'DELETE' }),
   // The board scaffold (no issues). The issues come from getBoardIssues.
   getProject: (projectKey: string) => request<ProjectScaffold>(`/projects/${projectKey}`),
   // The board's issues and their relations.
@@ -3234,6 +3540,15 @@ export const api = {
   deleteAttachment: (publicId: string) =>
     request<void>(`/attachments/${publicId}`, { method: 'DELETE' }),
 
+  listInitiativeAttachments: (initiativeId: number) =>
+    request<Attachment[]>(`/initiatives/${initiativeId}/attachments`).then((rows) =>
+      rows.map(withMediaUrl),
+    ),
+  uploadInitiativeAttachment: (initiativeId: number, file: File) =>
+    sendAttachmentFile(`/initiatives/${initiativeId}/attachments`, 'POST', file),
+  deleteInitiativeAttachment: (publicId: string) =>
+    request<void>(`/initiative-attachments/${publicId}`, { method: 'DELETE' }),
+
   listFeed: (issueId: number, params: { cursor?: FeedCursor | null; limit?: number } = {}) =>
     request<FeedPage>(`/issues/${issueId}/feed${feedPageQuery(params)}`),
   // The same page, split into the stretches the issue spent in one status.
@@ -3254,17 +3569,15 @@ export const api = {
 
   // Initiatives — collection ops take projectKey; ops on one initiative take its
   // own id and hit /initiatives/:id (like issues).
-  listInitiatives: (projectKey: string, params: InitiativeListParams = {}) => {
-    const q = new URLSearchParams();
-    if (params.statuses && params.statuses.length) q.set('status', params.statuses.join(','));
-    if (params.search) q.set('search', params.search);
-    if (params.sort) q.set('sort', params.sort);
-    if (params.dir) q.set('dir', params.dir);
-    if (params.page) q.set('page', String(params.page));
-    if (params.pageSize) q.set('pageSize', String(params.pageSize));
-    const qs = q.toString();
-    return request<InitiativePage>(`/projects/${projectKey}/initiatives${qs ? `?${qs}` : ''}`);
-  },
+  listInitiatives: (projectKey: string, params: InitiativeListParams) =>
+    request<Page<Initiative>>(
+      `/projects/${projectKey}/initiatives${pageQuery(params, {
+        status: params.statuses?.join(','),
+        search: params.search,
+        sort: params.sort,
+        dir: params.dir,
+      })}`,
+    ),
   listInitiativeOptions: (projectKey: string, params: { search?: string; include?: number }) => {
     const q = new URLSearchParams();
     if (params.search) q.set('search', params.search);
@@ -3300,10 +3613,8 @@ export const api = {
     request<Cycle[]>(`/projects/${projectKey}/cycles?status=planned`),
   listCycleOptions: (projectKey: string) =>
     request<CycleOption[]>(`/projects/${projectKey}/cycles/options`),
-  listCompletedCycles: (projectKey: string, params: { page: number; pageSize: number }) =>
-    request<CyclePage>(
-      `/projects/${projectKey}/cycles/completed?page=${params.page}&pageSize=${params.pageSize}`,
-    ),
+  listCompletedCycles: (projectKey: string, params: PageParams) =>
+    request<Page<Cycle>>(`/projects/${projectKey}/cycles/completed${pageQuery(params)}`),
   getCycle: (id: number) => request<Cycle>(`/cycles/${id}`),
   createCycle: (projectKey: string, input: NewCycleInput) =>
     request<Cycle>(`/projects/${projectKey}/cycles`, {
@@ -3360,16 +3671,12 @@ export const api = {
 
   // Note boards — all ops are project-scoped (a board that is not public is
   // filtered to who may see it server-side), so board ops take projectKey plus the
-  // board id. The list is paged and searchable (switcher); a single board carries
-  // its canvas.
-  listNoteBoards: (projectKey: string, params: NoteBoardListParams = {}) => {
-    const qs = new URLSearchParams();
-    if (params.q) qs.set('q', params.q);
-    if (params.limit != null) qs.set('limit', String(params.limit));
-    if (params.offset != null) qs.set('offset', String(params.offset));
-    const suffix = qs.toString() ? `?${qs}` : '';
-    return request<NoteBoardSummary[]>(`/projects/${projectKey}/note-boards${suffix}`);
-  },
+  // board id. The list feeds the switcher, which shows every board, so it comes whole
+  // with `q` narrowing it; a single board carries its canvas.
+  listNoteBoards: (projectKey: string, params: { q?: string } = {}) =>
+    request<NoteBoardSummary[]>(
+      `/projects/${projectKey}/note-boards${params.q ? `?q=${encodeURIComponent(params.q)}` : ''}`,
+    ),
   getNoteBoard: (projectKey: string, boardId: number) =>
     request<NoteBoard>(`/projects/${projectKey}/note-boards/${boardId}`),
   listNoteBoardAccessCandidates: (projectKey: string) =>
@@ -3407,6 +3714,19 @@ export const api = {
     }),
   unlinkDocumentIssue: (projectKey: string, documentId: number, issueId: number) =>
     request<void>(`/projects/${projectKey}/documents/${documentId}/issues/${issueId}`, {
+      method: 'DELETE',
+    }),
+  listInitiativeDocumentLinks: (projectKey: string, initiativeId: number) =>
+    request<IssueDocumentLink[]>(
+      `/projects/${projectKey}/documents/for-initiative/${initiativeId}`,
+    ),
+  linkDocumentInitiative: (projectKey: string, documentId: number, initiativeId: number) =>
+    request<IssueDocumentLink>(`/projects/${projectKey}/documents/${documentId}/initiatives`, {
+      method: 'POST',
+      body: JSON.stringify({ initiativeId }),
+    }),
+  unlinkDocumentInitiative: (projectKey: string, documentId: number, initiativeId: number) =>
+    request<void>(`/projects/${projectKey}/documents/${documentId}/initiatives/${initiativeId}`, {
       method: 'DELETE',
     }),
   createDocument: (projectKey: string, input: NewProjectDocumentInput) =>
@@ -3539,9 +3859,22 @@ export const api = {
   getAgentWorkload: (projectKey: string) =>
     request<AgentWorkloadItem[]>(`/projects/${projectKey}/analytics/agent-workload`),
 
-  // Members: list who is on a project, and revoke access (an owner removes
-  // anyone; a member removes only themselves — leaving the project).
-  listMembers: (projectKey: string) => request<MemberRow[]>(`/projects/${projectKey}/members`),
+  // Members: list who is on a project, add someone from its team, and revoke access
+  // (an owner removes anyone; a member removes only themselves — leaving the
+  // project).
+  // One page of the project's members.
+  listMembers: (projectKey: string, params: MemberListParams) =>
+    request<MemberPage>(`/projects/${projectKey}/members${memberListQuery(params)}`),
+  listMemberCandidates: (projectKey: string) =>
+    request<MemberCandidate[]>(`/projects/${projectKey}/members/candidates`),
+  addMember: (
+    projectKey: string,
+    input: { userId: string; role: MemberRole; roleId?: number | null },
+  ) =>
+    request<void>(`/projects/${projectKey}/members`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   removeMember: (projectKey: string, userId: string) =>
     request<void>(`/projects/${projectKey}/members/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
@@ -3565,34 +3898,37 @@ export const api = {
       body: JSON.stringify({ description }),
     }),
 
-  // AI agents: a project's bot users and their configuration. The plaintext key
-  // is returned only by create and regenerate-key, so those responses carry it
-  // alongside the agent; it is never part of a list/read.
-  listAiAgents: (projectKey: string) => request<AiAgent[]>(`/projects/${projectKey}/ai-agents`),
-  listAgentTools: (projectKey: string) =>
-    request<AgentTool[]>(`/projects/${projectKey}/ai-agents/tools`),
-  createAiAgent: (projectKey: string, input: NewAiAgentInput) =>
-    request<{ agent: AiAgent; apiKey: string | null }>(`/projects/${projectKey}/ai-agents`, {
+  // AI agents: a team's bot users and their configuration. Pass projectId to list only
+  // the agents working in one project of the team. The plaintext key is returned only
+  // by create and regenerate-key, so those responses carry it alongside the agent; it
+  // is never part of a list/read.
+  listAiAgents: (teamId: number, projectId?: number) =>
+    request<AiAgent[]>(
+      `/teams/${teamId}/ai-agents${projectId != null ? `?projectId=${projectId}` : ''}`,
+    ),
+  listAgentTools: (teamId: number) => request<AgentTool[]>(`/teams/${teamId}/ai-agents/tools`),
+  createAiAgent: (teamId: number, input: NewAiAgentInput) =>
+    request<{ agent: AiAgent; apiKey: string | null }>(`/teams/${teamId}/ai-agents`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  updateAiAgent: (projectKey: string, agentId: number, patch: AiAgentPatch) =>
-    request<AiAgent>(`/projects/${projectKey}/ai-agents/${agentId}`, {
+  updateAiAgent: (teamId: number, agentId: number, patch: AiAgentPatch) =>
+    request<AiAgent>(`/teams/${teamId}/ai-agents/${agentId}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
-  regenerateAiAgentKey: (projectKey: string, agentId: number) =>
-    request<{ apiKey: string }>(`/projects/${projectKey}/ai-agents/${agentId}/regenerate-key`, {
+  regenerateAiAgentKey: (teamId: number, agentId: number) =>
+    request<{ apiKey: string }>(`/teams/${teamId}/ai-agents/${agentId}/regenerate-key`, {
       method: 'POST',
     }),
-  deleteAiAgent: (projectKey: string, agentId: number) =>
-    request<void>(`/projects/${projectKey}/ai-agents/${agentId}`, { method: 'DELETE' }),
-  listAgentRuns: (projectKey: string, agentId: number, before?: number) =>
+  deleteAiAgent: (teamId: number, agentId: number) =>
+    request<void>(`/teams/${teamId}/ai-agents/${agentId}`, { method: 'DELETE' }),
+  listAgentRuns: (teamId: number, agentId: number, before?: number) =>
     request<AgentRunPage>(
-      `/projects/${projectKey}/ai-agents/${agentId}/runs?limit=25${before ? `&before=${before}` : ''}`,
+      `/teams/${teamId}/ai-agents/${agentId}/runs?limit=25${before ? `&before=${before}` : ''}`,
     ),
-  listAgentSchedules: (projectKey: string) =>
-    request<AgentSchedule[]>(`/projects/${projectKey}/agent-schedules`),
+  listAgentSchedules: (projectKey: string, params: PageParams) =>
+    request<Page<AgentSchedule>>(`/projects/${projectKey}/agent-schedules${pageQuery(params)}`),
   createAgentSchedule: (projectKey: string, input: AgentScheduleInput) =>
     request<AgentSchedule>(`/projects/${projectKey}/agent-schedules`, {
       method: 'POST',
@@ -3661,139 +3997,145 @@ export const api = {
       { method: 'DELETE' },
     ),
 
-  // Integrations: stored credentials for LLM providers and tool integrations. The
-  // secret is write-only — responses carry only a redacted view.
-  listIntegrationCatalog: (projectKey: string) =>
-    request<IntegrationMeta[]>(`/projects/${projectKey}/integrations/catalog`),
-  listIntegrationModels: (projectKey: string, provider: string) =>
+  // Integrations: the team's stored credentials for LLM providers and tool
+  // integrations, shared by every project it owns. The secret is write-only —
+  // responses carry only a redacted view.
+  listIntegrationCatalog: (teamId: number) =>
+    request<IntegrationMeta[]>(`/teams/${teamId}/integrations/catalog`),
+  listIntegrationModels: (teamId: number, provider: string) =>
     request<ProviderModel[]>(
-      `/projects/${projectKey}/integrations/models/${encodeURIComponent(provider)}`,
+      `/teams/${teamId}/integrations/models/${encodeURIComponent(provider)}`,
     ),
-  listCredentials: (projectKey: string) =>
-    request<IntegrationCredential[]>(`/projects/${projectKey}/integrations`),
-  listIntegrationOptions: (projectKey: string, kind?: IntegrationKind) =>
+  listCredentials: (teamId: number, params: PageParams) =>
+    request<Page<IntegrationCredential>>(`/teams/${teamId}/integrations${pageQuery(params)}`),
+  listIntegrationOptions: (teamId: number, kind?: IntegrationKind) =>
     request<IntegrationOption[]>(
-      `/projects/${projectKey}/integrations/options${kind ? `?kind=${kind}` : ''}`,
+      `/teams/${teamId}/integrations/options${kind ? `?kind=${kind}` : ''}`,
     ),
-  createCredential: (projectKey: string, input: NewCredentialInput) =>
-    request<IntegrationCredential>(`/projects/${projectKey}/integrations`, {
+  createCredential: (teamId: number, input: NewCredentialInput) =>
+    request<IntegrationCredential>(`/teams/${teamId}/integrations`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  updateCredential: (projectKey: string, credentialId: number, patch: CredentialPatch) =>
-    request<IntegrationCredential>(`/projects/${projectKey}/integrations/${credentialId}`, {
+  updateCredential: (teamId: number, credentialId: number, patch: CredentialPatch) =>
+    request<IntegrationCredential>(`/teams/${teamId}/integrations/${credentialId}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
-  deleteCredential: (projectKey: string, credentialId: number) =>
-    request<void>(`/projects/${projectKey}/integrations/${credentialId}`, { method: 'DELETE' }),
+  deleteCredential: (teamId: number, credentialId: number) =>
+    request<void>(`/teams/${teamId}/integrations/${credentialId}`, { method: 'DELETE' }),
 
-  // Agent skills: the project skill library and the skills enabled on an agent.
-  listSkills: (projectKey: string) => request<AgentSkill[]>(`/projects/${projectKey}/agent-skills`),
-  getSkillMarkdown: (projectKey: string, skillId: number) =>
-    request<{ markdown: string }>(`/projects/${projectKey}/agent-skills/${skillId}/markdown`),
-  getSkillReferenceContent: (projectKey: string, skillId: number, path: string) =>
+  // Agent skills: the team skill library and the skills enabled on an agent.
+  listSkills: (teamId: number, params: PageParams) =>
+    request<Page<AgentSkill>>(`/teams/${teamId}/agent-skills${pageQuery(params)}`),
+  // The whole library, which the agent editor's skill picker needs entire.
+  listSkillOptions: (teamId: number) =>
+    request<AgentSkill[]>(`/teams/${teamId}/agent-skills/options`),
+  getSkill: (teamId: number, skillId: number) =>
+    request<AgentSkill>(`/teams/${teamId}/agent-skills/${skillId}`),
+  getSkillMarkdown: (teamId: number, skillId: number) =>
+    request<{ markdown: string }>(`/teams/${teamId}/agent-skills/${skillId}/markdown`),
+  getSkillReferenceContent: (teamId: number, skillId: number, path: string) =>
     request<{ content: string }>(
-      `/projects/${projectKey}/agent-skills/${skillId}/references/content?path=${encodeURIComponent(path)}`,
+      `/teams/${teamId}/agent-skills/${skillId}/references/content?path=${encodeURIComponent(path)}`,
     ),
-  createSkill: (projectKey: string, input: NewSkillInput) =>
-    request<AgentSkill>(`/projects/${projectKey}/agent-skills`, {
+  createSkill: (teamId: number, input: NewSkillInput) =>
+    request<AgentSkill>(`/teams/${teamId}/agent-skills`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  discoverGithubSkills: (projectKey: string, url: string) =>
-    request<GithubSkillCandidate[]>(`/projects/${projectKey}/agent-skills/github/discover`, {
+  discoverGithubSkills: (teamId: number, url: string) =>
+    request<GithubSkillCandidate[]>(`/teams/${teamId}/agent-skills/github/discover`, {
       method: 'POST',
       body: JSON.stringify({ url }),
     }),
-  updateSkill: (projectKey: string, skillId: number, patch: SkillPatch) =>
-    request<AgentSkill>(`/projects/${projectKey}/agent-skills/${skillId}`, {
+  updateSkill: (teamId: number, skillId: number, patch: SkillPatch) =>
+    request<AgentSkill>(`/teams/${teamId}/agent-skills/${skillId}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
-  deleteSkill: (projectKey: string, skillId: number) =>
-    request<void>(`/projects/${projectKey}/agent-skills/${skillId}`, { method: 'DELETE' }),
+  deleteSkill: (teamId: number, skillId: number) =>
+    request<void>(`/teams/${teamId}/agent-skills/${skillId}`, { method: 'DELETE' }),
   // Multipart upload for a skill reference — see sendAttachmentFile for why
   // request() cannot be used.
-  addSkillReference: async (
-    projectKey: string,
-    skillId: number,
-    file: File,
-  ): Promise<AgentSkill> => {
+  addSkillReference: async (teamId: number, skillId: number, file: File): Promise<AgentSkill> => {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(
-      `${API_URL}/projects/${projectKey}/agent-skills/${skillId}/references`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        body: form,
-      },
-    );
+    const res = await fetch(`${API_URL}/teams/${teamId}/agent-skills/${skillId}/references`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    });
     if (!res.ok) throw await apiFailure(res);
     return res.json();
   },
-  updateSkillReferenceContent: (
-    projectKey: string,
-    skillId: number,
-    path: string,
-    content: string,
-  ) =>
-    request<AgentSkill>(`/projects/${projectKey}/agent-skills/${skillId}/references/content`, {
+  updateSkillReferenceContent: (teamId: number, skillId: number, path: string, content: string) =>
+    request<AgentSkill>(`/teams/${teamId}/agent-skills/${skillId}/references/content`, {
       method: 'PATCH',
       body: JSON.stringify({ path, content }),
     }),
-  deleteSkillReference: (projectKey: string, skillId: number, path: string) =>
+  deleteSkillReference: (teamId: number, skillId: number, path: string) =>
     request<AgentSkill>(
-      `/projects/${projectKey}/agent-skills/${skillId}/references?path=${encodeURIComponent(path)}`,
+      `/teams/${teamId}/agent-skills/${skillId}/references?path=${encodeURIComponent(path)}`,
       { method: 'DELETE' },
     ),
-  listAgentSkills: (projectKey: string, agentId: number) =>
-    request<AgentSkill[]>(`/projects/${projectKey}/ai-agents/${agentId}/skills`),
-  setAgentSkills: (projectKey: string, agentId: number, skillIds: number[]) =>
-    request<AgentSkill[]>(`/projects/${projectKey}/ai-agents/${agentId}/skills`, {
+  listAgentSkills: (teamId: number, agentId: number) =>
+    request<AgentSkill[]>(`/teams/${teamId}/ai-agents/${agentId}/skills`),
+  setAgentSkills: (teamId: number, agentId: number, skillIds: number[]) =>
+    request<AgentSkill[]>(`/teams/${teamId}/ai-agents/${agentId}/skills`, {
       method: 'PUT',
       body: JSON.stringify({ skillIds }),
     }),
 
-  // Configured tools: a project's tools bound to a credential, and the tools enabled
-  // on one agent. The tool catalog itself comes from the integrations catalog.
-  listConfiguredTools: (projectKey: string) =>
-    request<ConfiguredTool[]>(`/projects/${projectKey}/agent-tools`),
-  createConfiguredTool: (projectKey: string, input: NewConfiguredToolInput) =>
-    request<ConfiguredTool>(`/projects/${projectKey}/agent-tools`, {
+  // Configured tools: a team's tools bound to a credential, and the tools enabled on
+  // one agent. The tool catalog itself comes from the integrations catalog.
+  listConfiguredTools: (teamId: number, params: PageParams) =>
+    request<Page<ConfiguredTool>>(`/teams/${teamId}/agent-tools${pageQuery(params)}`),
+  // The whole list, which the agent editor's tool picker and the tool dialog need
+  // entire.
+  listConfiguredToolOptions: (teamId: number) =>
+    request<ConfiguredTool[]>(`/teams/${teamId}/agent-tools/options`),
+  createConfiguredTool: (teamId: number, input: NewConfiguredToolInput) =>
+    request<ConfiguredTool>(`/teams/${teamId}/agent-tools`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),
-  deleteConfiguredTool: (projectKey: string, agentToolId: number) =>
-    request<void>(`/projects/${projectKey}/agent-tools/${agentToolId}`, { method: 'DELETE' }),
-  listAgentToolLinks: (projectKey: string, agentId: number) =>
-    request<ConfiguredTool[]>(`/projects/${projectKey}/ai-agents/${agentId}/tool-configs`),
-  setAgentTools: (projectKey: string, agentId: number, agentToolIds: number[]) =>
-    request<ConfiguredTool[]>(`/projects/${projectKey}/ai-agents/${agentId}/tool-configs`, {
+  deleteConfiguredTool: (teamId: number, agentToolId: number) =>
+    request<void>(`/teams/${teamId}/agent-tools/${agentToolId}`, { method: 'DELETE' }),
+  listAgentToolLinks: (teamId: number, agentId: number) =>
+    request<ConfiguredTool[]>(`/teams/${teamId}/ai-agents/${agentId}/tool-configs`),
+  setAgentTools: (teamId: number, agentId: number, agentToolIds: number[]) =>
+    request<ConfiguredTool[]>(`/teams/${teamId}/ai-agents/${agentId}/tool-configs`, {
       method: 'PUT',
       body: JSON.stringify({ agentToolIds }),
     }),
 
-  // Roles: a project's custom roles and the permission catalog behind the role
-  // editor. Any member can list; create/update/delete are owner-only on the API.
+  // Roles: a team's roles and the permission catalog behind the role editor. Roles
+  // belong to the team, so one list serves every project it owns; an owner or a
+  // manager of the team writes them, and only its owner deletes one.
   getPermissionCatalog: () => request<PermissionCatalog>('/permission-catalog'),
-  listRoles: (projectKey: string) => request<Role[]>(`/projects/${projectKey}/roles`),
-  createRole: (projectKey: string, input: { name: string; permissions: Permissions }) =>
-    request<Role>(`/projects/${projectKey}/roles`, { method: 'POST', body: JSON.stringify(input) }),
+  listTeamRoles: (teamId: number) => request<Role[]>(`/teams/${teamId}/roles`),
+  createRole: (teamId: number, input: { name: string; permissions: Permissions }) =>
+    request<Role>(`/teams/${teamId}/roles`, { method: 'POST', body: JSON.stringify(input) }),
   updateRole: (
-    projectKey: string,
+    teamId: number,
     roleId: number,
     patch: { name?: string; permissions?: Permissions },
   ) =>
-    request<Role>(`/projects/${projectKey}/roles/${roleId}`, {
+    request<Role>(`/teams/${teamId}/roles/${roleId}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
-  deleteRole: (projectKey: string, roleId: number) =>
-    request<void>(`/projects/${projectKey}/roles/${roleId}`, { method: 'DELETE' }),
+  getRoleUsage: (teamId: number, roleId: number) =>
+    request<RoleUsage>(`/teams/${teamId}/roles/${roleId}/usage`),
+  deleteRole: (teamId: number, roleId: number, targetRoleId?: number) => {
+    const qs = targetRoleId === undefined ? '' : `?targetRoleId=${targetRoleId}`;
+    return request<void>(`/teams/${teamId}/roles/${roleId}${qs}`, { method: 'DELETE' });
+  },
 
-  // Invites — owner side: create, list, email, and revoke a project's invite links.
+  // Invites — the managing side: create, list, email, and revoke the invite links of
+  // a project or of a team. A project invite joins the team as well; a team invite
+  // names no project.
   listInvites: (projectKey: string) => request<InviteRow[]>(`/projects/${projectKey}/invites`),
   createInvite: (
     projectKey: string,
@@ -3809,15 +4151,20 @@ export const api = {
     }),
   deleteInvite: (projectKey: string, inviteId: number) =>
     request<void>(`/projects/${projectKey}/invites/${inviteId}`, { method: 'DELETE' }),
+  listTeamInvites: (teamId: number) => request<InviteRow[]>(`/teams/${teamId}/invites`),
+  createTeamInvite: (teamId: number, input: { email: string; role: InviteTeamRole }) =>
+    request<InviteRow>(`/teams/${teamId}/invites`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  deleteTeamInvite: (teamId: number, inviteId: number) =>
+    request<void>(`/teams/${teamId}/invites/${inviteId}`, { method: 'DELETE' }),
 
   // Invites — invitee side: open a link by token, then accept or reject it. The
   // session email must match the invite. Accept returns where to go next.
   getInvite: (token: string) => request<InviteView>(`/invites/${encodeURIComponent(token)}`),
   acceptInvite: (token: string) =>
-    request<{ projectKey: string; projectName: string; role: MemberRole }>(
-      `/invites/${encodeURIComponent(token)}/accept`,
-      { method: 'POST' },
-    ),
+    request<AcceptedInvite>(`/invites/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
   rejectInvite: (token: string) =>
     request<void>(`/invites/${encodeURIComponent(token)}/reject`, { method: 'POST' }),
 
@@ -3857,10 +4204,7 @@ export const api = {
   // Project settings: MCP reachability and the enabled sections. Owner-only; the
   // current state comes with the project payload (getProject), so there is no read
   // here.
-  updateProjectSettings: (
-    projectKey: string,
-    patch: { mcpEnabled?: boolean; features?: Partial<ProjectFeatures> },
-  ) =>
+  updateProjectSettings: (projectKey: string, patch: { features?: Partial<ProjectFeatures> }) =>
     request<ProjectSettings>(`/projects/${projectKey}/settings`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
@@ -3947,11 +4291,12 @@ export const api = {
       { method: 'DELETE' },
     ),
 
-  // Notification provider credentials (danger_zone: read to view, edit to change).
-  getNotificationSettings: (projectKey: string) =>
-    request<NotificationSettings>(`/projects/${projectKey}/notification-settings`),
-  setNotificationSettings: (projectKey: string, input: NotificationSettingsPatch) =>
-    request<NotificationSettings>(`/projects/${projectKey}/notification-settings`, {
+  // The team's notification provider credentials, shared by every project it owns
+  // (team owner only).
+  getNotificationSettings: (teamId: number) =>
+    request<NotificationSettings>(`/teams/${teamId}/notification-settings`),
+  setNotificationSettings: (teamId: number, input: NotificationSettingsPatch) =>
+    request<NotificationSettings>(`/teams/${teamId}/notification-settings`, {
       method: 'PUT',
       body: JSON.stringify(input),
     }),
@@ -4071,6 +4416,12 @@ export const api = {
   // The running version, shown in the sidebar to every signed-in user.
   getAppVersion: () => request<{ version: string }>('/settings/version'),
 
+  // The release this instance just upgraded to, and what the upgrade did to its
+  // data. Read once per session; closing the screen records the version.
+  getWhatsNew: () => request<WhatsNew>('/settings/whats-new'),
+  markWhatsNewSeen: () =>
+    request<{ version: string }>('/settings/whats-new/seen', { method: 'POST' }),
+
   // Whether a newer release exists, and the release notes behind it. God mode: the
   // instance owner is the one who upgrades.
   getUpdateStatus: () => request<UpdateStatus>('/god/updates'),
@@ -4125,20 +4476,10 @@ export const api = {
 
   // The instance user directory: one page of accounts, and one account with the
   // projects it can reach. Search, the kind filter and paging all run on the server.
-  listInstanceUsers: (params: {
-    search?: string;
-    kind: InstanceUserKind;
-    limit: number;
-    offset: number;
-  }) => {
-    const query = new URLSearchParams({
-      kind: params.kind,
-      limit: String(params.limit),
-      offset: String(params.offset),
-    });
-    if (params.search) query.set('search', params.search);
-    return request<InstanceUserPage>(`/god/users?${query.toString()}`);
-  },
+  listInstanceUsers: (params: PageParams & { search?: string; kind: InstanceUserKind }) =>
+    request<Page<InstanceUser>>(
+      `/god/users${pageQuery(params, { kind: params.kind, search: params.search })}`,
+    ),
   getInstanceUser: (userId: string) => request<InstanceUserDetail>(`/god/users/${userId}`),
   verifyInstanceUserEmail: (userId: string) =>
     request<InstanceUserDetail>(`/god/users/${userId}/verify-email`, { method: 'POST' }),
@@ -4150,14 +4491,10 @@ export const api = {
     }),
   // The instance project directory: one page of projects, and one project with its
   // members. Search and paging run on the server.
-  listInstanceProjects: (params: { search?: string; limit: number; offset: number }) => {
-    const query = new URLSearchParams({
-      limit: String(params.limit),
-      offset: String(params.offset),
-    });
-    if (params.search) query.set('search', params.search);
-    return request<InstanceProjectPage>(`/god/projects?${query.toString()}`);
-  },
+  listInstanceProjects: (params: PageParams & { search?: string }) =>
+    request<Page<InstanceProject>>(`/god/projects${pageQuery(params, { search: params.search })}`),
+  // Every project, for the SCIM mapping picker; the directory above is paged.
+  listInstanceProjectOptions: () => request<InstanceProjectOption[]>('/god/projects/options'),
   getInstanceProject: (projectId: number) =>
     request<InstanceProjectDetail>(`/god/projects/${projectId}`),
   // The instance's own sign-in policy, readable without a session: the sign-up

@@ -3,6 +3,7 @@ import { authedApi, type Api } from '#tests/helpers/app';
 import { signUpTestUser, type TestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
 import { pulseRows } from '../../service';
+import { createAgent } from '#tests/helpers/agents';
 
 // Read-only project analytics. Every figure is derived from the issue /
 // project_column / issue_activity / issue_status tables, so the tests build state
@@ -260,7 +261,7 @@ describe('analytics', () => {
 
     it('groups by delegate with a Not-delegated bucket', async () => {
       const { asOwner, col } = await setupProject();
-      const agent = await createAgent(asOwner, 'helperbot');
+      const agent = await makeAgent(asOwner, 'helperbot');
       const delegated = await createIssue(asOwner, col.started);
       await asOwner.issues({ issueId: delegated.id }).patch({ delegateUserId: agent.userId });
       await createIssue(asOwner, col.started);
@@ -489,14 +490,12 @@ describe('analytics', () => {
 
   // Creates an agent (external by default) and returns its bot user id, so a test
   // can delegate an issue to it or assert the workload roster.
-  async function createAgent(
+  async function makeAgent(
     asOwner: Api,
     username: string,
     kind: 'external' | 'internal' = 'external',
   ) {
-    const res = await asOwner
-      .projects({ projectKey: 'MKT' })
-      ['ai-agents'].post({ name: username, username, kind });
+    const res = await createAgent(asOwner, 'MKT', { name: username, username, kind });
     if (!res.data) throw new Error(`createAgent failed with status ${res.status}`);
     return res.data.agent;
   }
@@ -582,7 +581,7 @@ describe('analytics', () => {
 
     it('counts open issues delegated to an agent and reports zero runs', async () => {
       const { asOwner, col } = await setupProject();
-      const agent = await createAgent(asOwner, 'helperbot');
+      const agent = await makeAgent(asOwner, 'helperbot');
       const issue = await createIssue(asOwner, col.started);
       await asOwner.issues({ issueId: issue.id }).patch({ delegateUserId: agent.userId });
 
@@ -602,7 +601,7 @@ describe('analytics', () => {
 
     it('excludes completed and canceled issues from the delegated count', async () => {
       const { asOwner, col } = await setupProject();
-      const agent = await createAgent(asOwner, 'helperbot');
+      const agent = await makeAgent(asOwner, 'helperbot');
       const open = await createIssue(asOwner, col.started);
       const done = await createIssue(asOwner, col.completed);
       await asOwner.issues({ issueId: open.id }).patch({ delegateUserId: agent.userId });

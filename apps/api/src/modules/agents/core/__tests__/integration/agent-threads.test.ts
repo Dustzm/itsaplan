@@ -5,6 +5,7 @@ import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
 import { ensureThread, buildMemory } from '../../runtime/memory';
 import { recordContextUsage } from '../../../chat-usage';
+import { createAgent } from '#tests/helpers/agents';
 
 // The chat-history endpoints:
 //   GET /projects/:key/ai-agents/:agentId/threads             — the caller's own chat
@@ -31,7 +32,7 @@ async function setup() {
 const agents = (api: Api) => api.projects({ projectKey: 'MKT' })['ai-agents'];
 
 async function createInternalAgent(asOwner: Api, name: string, username: string) {
-  const res = await agents(asOwner).post({ name, username, kind: 'internal' });
+  const res = await createAgent(asOwner, 'MKT', { name, username, kind: 'internal' });
   return res.data!.agent;
 }
 
@@ -41,14 +42,14 @@ async function createInternalAgent(asOwner: Api, name: string, username: string)
 async function seedThread(
   threadId: string,
   resourceId: string,
-  agent: { id: number; projectId: number },
+  agent: { id: number; projects: { id: number }[] },
   title: string,
   turns: Array<{ role: 'user' | 'assistant'; text: string; parts?: MastraMessagePart[] }> = [],
 ) {
   await ensureThread(
     threadId,
     resourceId,
-    { agentId: agent.id, projectId: agent.projectId, kind: 'chat' },
+    { agentId: agent.id, projectId: agent.projects[0].id, kind: 'chat' },
     title,
   );
   if (turns.length === 0) return;

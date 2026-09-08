@@ -10,6 +10,8 @@ import { useUpdateProjectFeatures } from '../services/settings.service';
 
 export interface FeatureTogglesForm {
   features: ProjectFeatures;
+  // The sections this project may use at all. One the team cannot use is not offered.
+  available: (keyof ProjectFeatures)[];
   // Only an owner may toggle; others see the current state read-only.
   editable: boolean;
   saving: boolean;
@@ -32,6 +34,7 @@ export function useFeatureToggles(project: ProjectDetail): FeatureTogglesForm {
 
   return {
     features: projectFeatures(project.project),
+    available: project.project.availableFeatures,
     editable: isOwner,
     saving: update.isPending,
     toggle,

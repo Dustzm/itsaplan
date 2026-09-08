@@ -14,8 +14,8 @@ export default function GodEmailSettings({ form }: { form: GodEmailForm }) {
     <div className="space-y-8">
       <GodEmailProviderSection form={form} />
       <SettingsSection
-        title={t('projectNotifications')}
-        description={t('projectNotificationsHint')}
+        title={t('teamNotifications')}
+        description={t('teamNotificationsHint')}
         action={
           <EnabledSwitch
             checked={form.allowProjects}

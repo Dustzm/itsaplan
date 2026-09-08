@@ -1,17 +1,15 @@
 {
   "title": "خادم MCP",
-  "description": "اربط وكلاء الذكاء الاصطناعي بهذا المشروع عبر Model Context Protocol.",
-  "access": "الوصول عبر MCP",
-  "enabled": "مُفعَّل",
+  "description": "اربط وكلاء الذكاء الاصطناعي بالمشروع ده عبر Model Context Protocol. الوكيل بيشوف اللي مفتاح الـ API بتاعه بيسمح بيه.",
   "disabled": "مُعطَّل",
-  "ownerOnly": "يمكن لمالك المشروع وحده تشغيل الوصول عبر MCP أو إيقافه.",
-  "toggleAria": "تبديل الوصول عبر MCP",
+  "offForTeam": "MCP مقفول لفريق {team}.",
+  "offForProject": "فريق {team} مفعّل عنده MCP، بس المشروع ده مقفول.",
+  "openTeamSettings": "افتح إعدادات MCP بتاعة الفريق",
+  "askManager": "اطلب من مالك الفريق أو مديره إنه يفعّله:",
   "keyHint": "أنشئ مفتاحًا من صفحة <link>مفاتيح API</link>، ثم بدّل <code>{apiKey}</code> في المقتطف.",
   "endpoint": "نقطة نهاية MCP",
   "clientTabsAria": "العميل",
   "addToFile": "أضِف إلى <code>{file}</code>",
-  "copyAria": "نسخ",
-  "copied": "نُسخ إلى الحافظة",
   "notes": {
     "claudeCode": "نفّذ هذا في الطرفية.",
     "vscode": "يتطلّب GitHub Copilot.",
@@ -44,9 +42,5 @@
       "authorize": "تفويض",
       "failed": "تعذر إكمال تفويض OAuth."
     }
-  },
-  "toast": {
-    "enabled": "فُعِّل الوصول عبر MCP",
-    "disabled": "عُطِّل الوصول عبر MCP"
   }
 }

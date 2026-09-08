@@ -1,17 +1,15 @@
 {
   "title": "MCP-сервер",
-  "description": "Подключайте AI-агентов к этому проекту через Model Context Protocol.",
-  "access": "Доступ MCP",
-  "enabled": "Включено",
+  "description": "Подключите AI-агентов к проекту по Model Context Protocol. Агент видит то, что разрешает его API-ключ.",
   "disabled": "Выключено",
-  "ownerOnly": "Включать и выключать доступ MCP может только владелец проекта.",
-  "toggleAria": "Переключить доступ MCP",
+  "offForTeam": "MCP выключен для команды {team}.",
+  "offForProject": "В команде {team} MCP включён, но для этого проекта выключен.",
+  "openTeamSettings": "Открыть настройки MCP команды",
+  "askManager": "Попросите владельца или менеджера команды включить его:",
   "keyHint": "Создайте ключ на странице <link>API-ключи</link>, затем замените <code>{apiKey}</code> в сниппете.",
   "endpoint": "Endpoint MCP",
   "clientTabsAria": "Клиент",
   "addToFile": "Добавьте в <code>{file}</code>",
-  "copyAria": "Копировать",
-  "copied": "Скопировано в буфер обмена",
   "notes": {
     "claudeCode": "Выполните это в терминале.",
     "vscode": "Нужен GitHub Copilot.",
@@ -44,9 +42,5 @@
       "authorize": "Авторизовать",
       "failed": "Не удалось завершить авторизацию OAuth."
     }
-  },
-  "toast": {
-    "enabled": "MCP-доступ включён",
-    "disabled": "MCP-доступ выключен"
   }
 }

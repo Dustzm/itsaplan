@@ -51,7 +51,6 @@
         "toggle": "Ouvrir la palette de commandes"
       },
       "project": {
-        "switch": "Basculer vers le projet 1 à 9",
         "new": "Nouveau projet",
         "settings": "Ouvrir les paramètres du projet"
       },
@@ -63,6 +62,9 @@
       },
       "issue": {
         "new": "Nouveau ticket"
+      },
+      "initiative": {
+        "new": "Nouvelle initiative"
       },
       "view": {
         "kanban": "Affichage tableau",
@@ -171,10 +173,22 @@
     "tableDeleteRow": "Supprimer la ligne",
     "tableAddColumn": "Ajouter une colonne",
     "tableDeleteColumn": "Supprimer la colonne",
-    "tableDelete": "Supprimer le tableau"
+    "tableDelete": "Supprimer le tableau",
+    "insertImage": "Insérer une image",
+    "insertNamed": "Insérer {name}",
+    "noImages": "Aucune image jointe pour l'instant. Envoyez-en une depuis le panneau Pièces jointes, ou déposez-la directement dans l'éditeur.",
+    "image": "Image"
   },
   "chart": {
     "download": "Enregistrer le graphique",
     "downloadFailed": "Le graphique n'a pas pu être enregistré"
+  },
+  "agent": "Agent",
+  "pager": {
+    "previous": "Page précédente",
+    "next": "Page suivante",
+    "page": "Page {number}",
+    "perPage": "par page",
+    "range": "{first}-{last} sur {total}"
   }
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'bun:test';
-import { pinnedFetch, UrlNotAllowedError } from '../index';
+import { describe, it, expect, afterEach } from 'bun:test';
+import { assertPublicHttpUrl, pinnedFetch, UrlNotAllowedError } from '../index';
 
 // The guard is strict under NODE_ENV=test, so these exercise the production rules.
 describe('pinnedFetch', () => {
@@ -22,5 +22,57 @@ describe('pinnedFetch', () => {
     const res = await pinnedFetch('https://example.com/', { timeoutMs: 15_000 });
     expect(res.status).toBe(200);
     expect((await res.text()).length).toBeGreaterThan(0);
+  });
+});
+
+// SSRF_ALLOWED_HOSTS is the operator's escape hatch for a self-hosted repository
+// host: its address is configuration rather than content, and on a self-hosted
+// instance it is normally private. These run under NODE_ENV=test, so the strict
+// rules apply and the allowlist is the only thing admitting the URL.
+describe('SSRF_ALLOWED_HOSTS', () => {
+  const saved = process.env.SSRF_ALLOWED_HOSTS;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SSRF_ALLOWED_HOSTS;
+    else process.env.SSRF_ALLOWED_HOSTS = saved;
+  });
+
+  it('admits a literal private address that is named', async () => {
+    delete process.env.SSRF_ALLOWED_HOSTS;
+    await expect(assertPublicHttpUrl('https://127.0.0.1/')).rejects.toBeInstanceOf(
+      UrlNotAllowedError,
+    );
+    process.env.SSRF_ALLOWED_HOSTS = '127.0.0.1';
+    expect((await assertPublicHttpUrl('https://127.0.0.1/')).hostname).toBe('127.0.0.1');
+  });
+
+  it('admits a public hostname that resolves privately when it is named', async () => {
+    process.env.SSRF_ALLOWED_HOSTS = 'localtest.me';
+    expect((await assertPublicHttpUrl('https://localtest.me/')).hostname).toBe('localtest.me');
+  });
+
+  it('reads a comma-separated list, ignoring spacing and case', async () => {
+    process.env.SSRF_ALLOWED_HOSTS = ' git.example.com , LOCALTEST.ME ';
+    expect((await assertPublicHttpUrl('https://localtest.me/')).hostname).toBe('localtest.me');
+  });
+
+  it('matches the exact host only — no suffix or wildcard matching', async () => {
+    process.env.SSRF_ALLOWED_HOSTS = 'localtest.me';
+    await expect(assertPublicHttpUrl('https://sub.localtest.me/')).rejects.toBeInstanceOf(
+      UrlNotAllowedError,
+    );
+  });
+
+  it('does not relax the https requirement for a named host', async () => {
+    process.env.SSRF_ALLOWED_HOSTS = 'localtest.me';
+    await expect(assertPublicHttpUrl('http://localtest.me/')).rejects.toBeInstanceOf(
+      UrlNotAllowedError,
+    );
+  });
+
+  it('exempts nothing when unset', async () => {
+    delete process.env.SSRF_ALLOWED_HOSTS;
+    await expect(assertPublicHttpUrl('https://localtest.me/')).rejects.toBeInstanceOf(
+      UrlNotAllowedError,
+    );
   });
 });

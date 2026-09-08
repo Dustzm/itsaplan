@@ -6,6 +6,7 @@ import {
   issue,
   issueActivity,
   project,
+  team,
   projectColumn,
   type ActivityPayload,
 } from '@repo/db';
@@ -292,7 +293,7 @@ export async function listNotifications(
   if (f.types && f.types.length) conds.push(inArray(notification.type, f.types));
   if (f.fromUserId) conds.push(eq(notification.actorUserId, f.fromUserId));
   if (f.projectId != null) conds.push(eq(notification.projectId, f.projectId));
-  if (f.mcpOnly) conds.push(eq(project.mcpEnabled, true));
+  if (f.mcpOnly) conds.push(eq(project.mcpEnabled, true), eq(team.mcpEnabled, true));
   if (f.includeRead === false) conds.push(isNull(notification.readAt));
   if (!f.includeSnoozed)
     conds.push(or(isNull(notification.snoozedUntil), lt(notification.snoozedUntil, sql`now()`))!);
@@ -327,6 +328,7 @@ export async function listNotifications(
     )
     .innerJoin(issue, eq(issue.id, notification.issueId))
     .innerJoin(project, eq(project.id, notification.projectId))
+    .innerJoin(team, eq(team.id, project.teamId))
     .innerJoin(projectColumn, eq(projectColumn.id, issue.columnId))
     .leftJoin(issueActivity, eq(issueActivity.id, notification.sourceActivityId))
     .where(and(...conds))
@@ -355,11 +357,12 @@ export async function unreadCount(
     or(isNull(notification.snoozedUntil), lt(notification.snoozedUntil, sql`now()`)),
   ];
   if (projectId != null) conds.push(eq(notification.projectId, projectId));
-  if (mcpOnly) conds.push(eq(project.mcpEnabled, true));
+  if (mcpOnly) conds.push(eq(project.mcpEnabled, true), eq(team.mcpEnabled, true));
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(notification)
     .innerJoin(project, eq(project.id, notification.projectId))
+    .innerJoin(team, eq(team.id, project.teamId))
     .innerJoin(
       projectMember,
       and(eq(projectMember.projectId, notification.projectId), eq(projectMember.userId, userId)),

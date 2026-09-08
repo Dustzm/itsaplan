@@ -7,13 +7,12 @@ import {
   agentTool,
   aiAgent,
   initiative,
-  integrationCredential,
   issue,
   issueActivity,
   project,
   projectDashboard,
   projectMember,
-  projectRole,
+  teamRole,
   projectView,
   scimGroup,
   scimGroupMapping,
@@ -43,6 +42,8 @@ import {
   normalizePermissions,
   type Permissions,
 } from '#shared/permissions';
+import { listAllMembers, listMemberContexts } from '#modules/members/service';
+import { listRoles } from '#modules/roles/service';
 
 // Data access for the instance directories (god mode): every account and every
 // project on this instance. It reads across the better-auth tables (user, session,
@@ -241,13 +242,13 @@ export async function getInstanceUser(userId: string): Promise<InstanceUserDetai
         projectName: project.name,
         role: projectMember.role,
         roleId: projectMember.roleId,
-        roleName: projectRole.name,
-        permissions: projectRole.permissions,
+        roleName: teamRole.name,
+        permissions: teamRole.permissions,
         joinedAt: projectMember.createdAt,
       })
       .from(projectMember)
       .innerJoin(project, eq(project.id, projectMember.projectId))
-      .leftJoin(projectRole, eq(projectRole.id, projectMember.roleId))
+      .leftJoin(teamRole, eq(teamRole.id, projectMember.roleId))
       .where(eq(projectMember.userId, userId))
       .orderBy(project.name),
   ]);
@@ -305,7 +306,6 @@ export interface InstanceProjectCounts {
   agentCount: number;
   skillCount: number;
   toolCount: number;
-  integrationCount: number;
 }
 
 export interface InstanceProjectRow extends InstanceProjectCounts {
@@ -326,12 +326,17 @@ export interface InstanceProjectMember {
   userId: string;
   name: string;
   email: string;
+  // The handle they are mentioned by, @username. An agent's bot user carries the
+  // agent's handle, not one of its own.
+  username: string | null;
   image: string | null;
   isAgent: boolean;
   role: 'owner' | 'member';
   roleId: number | null;
   roleName: string | null;
   permissions: Permissions;
+  description: string;
+  timezone: string;
   joinedAt: string;
 }
 
@@ -346,6 +351,23 @@ export interface InstanceProjectPage {
   items: InstanceProjectRow[];
   // How many projects match the search, ignoring the page window.
   total: number;
+}
+
+// How many rows each of the given projects can draw on in a team-scoped table (the
+// skill library, the configured tools): they belong to the team that owns the project,
+// so two projects of one team report the same number.
+async function countByTeamOfProject(
+  table: PgTable,
+  teamIdColumn: AnyPgColumn,
+  projectIds: number[],
+): Promise<Map<number, number>> {
+  const rows = await db
+    .select({ projectId: project.id, count: sql<number>`count(${teamIdColumn})::int` })
+    .from(project)
+    .leftJoin(table, eq(teamIdColumn, project.teamId))
+    .where(inArray(project.id, projectIds))
+    .groupBy(project.id);
+  return new Map(rows.map((r) => [r.projectId, r.count]));
 }
 
 // How many rows each of the given projects has in a project-scoped table.
@@ -375,7 +397,6 @@ const EMPTY_FACTS: ProjectFacts = {
   agentCount: 0,
   skillCount: 0,
   toolCount: 0,
-  integrationCount: 0,
   lastActivityAt: null,
 };
 
@@ -395,7 +416,6 @@ async function loadProjectFacts(projectIds: number[]): Promise<(id: number) => P
     agents,
     skills,
     tools,
-    integrations,
     activityRows,
   ] = await Promise.all([
     countByProject(projectMember, projectMember.projectId, projectIds),
@@ -404,10 +424,16 @@ async function loadProjectFacts(projectIds: number[]): Promise<(id: number) => P
     countByProject(initiative, initiative.projectId, projectIds),
     countByProject(projectDashboard, projectDashboard.projectId, projectIds),
     countByProject(projectView, projectView.projectId, projectIds),
-    countByProject(aiAgent, aiAgent.projectId, projectIds),
-    countByProject(agentSkill, agentSkill.projectId, projectIds),
-    countByProject(agentTool, agentTool.projectId, projectIds),
-    countByProject(integrationCredential, integrationCredential.projectId, projectIds),
+    // An agent belongs to a team and works in the projects it is a member of, so the
+    // count per project is its memberships, not its own rows.
+    countByProject(
+      projectMember,
+      projectMember.projectId,
+      projectIds,
+      sql`exists (select 1 from ${aiAgent} where ${aiAgent.userId} = ${projectMember.userId})`,
+    ),
+    countByTeamOfProject(agentSkill, agentSkill.teamId, projectIds),
+    countByTeamOfProject(agentTool, agentTool.teamId, projectIds),
     // The feed has no project column of its own; it reaches one through its issue.
     // Reduced to the latest per project below, because aggregating in SQL would
     // return the max as a driver-formatted string, not a Date.
@@ -436,7 +462,6 @@ async function loadProjectFacts(projectIds: number[]): Promise<(id: number) => P
       agentCount: counts(agents, id),
       skillCount: counts(skills, id),
       toolCount: counts(tools, id),
-      integrationCount: counts(integrations, id),
       lastActivityAt: activeAt ? iso(activeAt) : null,
     };
   };
@@ -487,6 +512,17 @@ export async function listInstanceProjects(options: {
   return { items, total: totals[0]?.count ?? 0 };
 }
 
+// Every project on the instance as a picker entry, by key. What the SCIM group
+// mapping form fills its project select from.
+export async function listInstanceProjectOptions(): Promise<
+  { id: number; key: string; name: string }[]
+> {
+  return db
+    .select({ id: project.id, key: project.key, name: project.name })
+    .from(project)
+    .orderBy(project.key);
+}
+
 // One project with its members and the access each membership resolves to. Returns
 // null for an unknown id.
 export async function getInstanceProject(projectId: number): Promise<InstanceProjectDetail | null> {
@@ -494,51 +530,41 @@ export async function getInstanceProject(projectId: number): Promise<InstancePro
   const row = rows[0];
   if (!row) return null;
 
-  const [facts, memberships, agentRows, roles] = await Promise.all([
+  const [facts, memberships, contexts, roles] = await Promise.all([
     loadProjectFacts([row.id]),
-    db
-      .select({
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-        image: user.image,
-        role: projectMember.role,
-        roleId: projectMember.roleId,
-        roleName: projectRole.name,
-        permissions: projectRole.permissions,
-        joinedAt: projectMember.createdAt,
-      })
-      .from(projectMember)
-      .innerJoin(user, eq(user.id, projectMember.userId))
-      .leftJoin(projectRole, eq(projectRole.id, projectMember.roleId))
-      .where(eq(projectMember.projectId, projectId))
-      .orderBy(user.name),
-    db.select({ userId: aiAgent.userId }).from(aiAgent).where(eq(aiAgent.projectId, projectId)),
-    db
-      .select({ id: projectRole.id, name: projectRole.name, isDefault: projectRole.isDefault })
-      .from(projectRole)
-      .where(eq(projectRole.projectId, projectId))
-      .orderBy(projectRole.name),
+    listAllMembers(projectId),
+    listMemberContexts(projectId),
+    listRoles(row.teamId),
   ]);
 
-  const agentUserIds = new Set(agentRows.map((r) => r.userId));
-  const members: InstanceProjectMember[] = memberships.map((m) => {
-    const role = m.role === 'owner' ? 'owner' : 'member';
-    return {
-      userId: m.userId,
-      name: m.name,
-      email: m.email,
-      image: m.image,
-      isAgent: agentUserIds.has(m.userId),
-      role,
-      roleId: m.roleId,
-      roleName: m.roleName,
-      permissions: resolvePermissions(role, m.permissions),
-      joinedAt: iso(m.joinedAt),
-    };
+  const members: InstanceProjectMember[] = memberships.flatMap((m) => {
+    const context = contexts.get(m.userId);
+    if (!context) return [];
+    return [
+      {
+        userId: m.userId,
+        name: m.name,
+        email: m.email,
+        username: m.username,
+        image: m.image,
+        isAgent: m.isAgent,
+        role: m.role,
+        roleId: m.roleId,
+        roleName: m.roleName,
+        permissions: context.permissions,
+        description: m.description,
+        timezone: m.timezone,
+        joinedAt: m.createdAt,
+      },
+    ];
   });
+  members.sort((a, b) => a.name.localeCompare(b.name));
 
-  return { ...toProjectRow(row, facts(row.id)), members, roles };
+  return {
+    ...toProjectRow(row, facts(row.id)),
+    members,
+    roles: roles.map((r) => ({ id: r.id, name: r.name, isDefault: r.isDefault })),
+  };
 }
 
 // Marks the account's email address as confirmed and returns the updated user.
@@ -632,22 +658,23 @@ export async function setScimGroupMappings(
   }
   if (projectIds.length > 0) {
     const known = await db
-      .select({ id: project.id })
+      .select({ id: project.id, teamId: project.teamId })
       .from(project)
       .where(inArray(project.id, projectIds));
     if (known.length !== new Set(projectIds).size) throw new HttpError(400, 'Unknown project');
-    // A role belongs to one project, so a mapping that names another project's role
-    // would silently grant the wrong permissions.
+    // A role belongs to one team, so a mapping that names another team's role would
+    // silently grant the wrong permissions.
     const roleIds = mappings.map((m) => m.roleId).filter((id): id is number => id !== null);
     if (roleIds.length > 0) {
       const roles = await db
-        .select({ id: projectRole.id, projectId: projectRole.projectId })
-        .from(projectRole)
-        .where(inArray(projectRole.id, roleIds));
+        .select({ id: teamRole.id, teamId: teamRole.teamId })
+        .from(teamRole)
+        .where(inArray(teamRole.id, roleIds));
       for (const mapping of mappings) {
         if (mapping.roleId === null) continue;
         const role = roles.find((r) => r.id === mapping.roleId);
-        if (!role || role.projectId !== mapping.projectId) {
+        const teamId = known.find((p) => p.id === mapping.projectId)?.teamId;
+        if (!role || role.teamId !== teamId) {
           throw new HttpError(400, 'The role does not belong to that project');
         }
       }

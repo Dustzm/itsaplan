@@ -4,6 +4,7 @@ import { generateUsername } from '@repo/auth';
 import { iso } from '#shared/lib';
 import { deleteAccount } from '#shared/account-deletion';
 import { countOwners } from '#modules/members/service';
+import { insertOwnedTeam } from '#modules/teams/service';
 import { ScimError, type ScimFilter, type ScimGroupRecord, type ScimUserRecord } from './resource';
 import { mappedProjectIds, reconcileProjects } from './reconcile';
 
@@ -156,22 +157,30 @@ export async function createScimUser(input: {
       .returning(userColumns);
     return toUserRecord(linked[0]!);
   }
-  const rows = await db
-    .insert(user)
-    .values({
-      id: crypto.randomUUID(),
-      email,
-      name: input.name,
-      emailVerified: true,
-      role: 'user',
-      active: input.active,
-      scimExternalId: input.externalId,
-      // The @mention handle, derived from the address the same way a sign-up
-      // derives it. The identity provider does not supply one.
-      username: await generateUsername(email),
-    })
-    .returning(userColumns);
-  return toUserRecord(rows[0]!);
+  // The @mention handle, derived from the address the same way a sign-up derives it.
+  // The identity provider does not supply one.
+  const username = await generateUsername(email);
+  const created = await db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(user)
+      .values({
+        id: crypto.randomUUID(),
+        email,
+        name: input.name,
+        emailVerified: true,
+        role: 'user',
+        active: input.active,
+        scimExternalId: input.externalId,
+        username,
+      })
+      .returning(userColumns);
+    const row = inserted[0]!;
+    // A project belongs to a team, so without one of its own the account could only
+    // work in the projects its groups grant, and creating a project would fail.
+    await insertOwnedTeam(tx, username, row.id);
+    return row;
+  });
+  return toUserRecord(created);
 }
 
 export async function updateScimUser(

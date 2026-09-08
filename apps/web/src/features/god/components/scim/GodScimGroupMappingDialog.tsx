@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import GodScimMappingRow from './GodScimMappingRow';
 import { useGodScimMappingForm } from '../../hooks/useGodScimMappingForm';
-import { useInstanceProjectsQuery } from '../../services/god.service';
+import { useInstanceProjectOptionsQuery } from '../../services/god.service';
 
 // What one provisioned group grants. Saving reconciles the membership of every
 // project the change touched, so a project taken off this list loses the members the
@@ -29,11 +29,9 @@ export default function GodScimGroupMappingDialog({
   const t = useTranslations('god.scim.mappings');
   const tCommon = useTranslations('common');
   const form = useGodScimMappingForm(group);
-  // One page wide enough to hold every project of a self-hosted instance; the picker
-  // is a dropdown, not a searchable list.
-  const projects = useInstanceProjectsQuery({ search: '', limit: 200, offset: 0 });
+  const projects = useInstanceProjectOptionsQuery();
 
-  const available = (projects.data?.items ?? []).filter(
+  const available = (projects.data ?? []).filter(
     (project) => !form.takenProjectIds.includes(project.id),
   );
 
@@ -60,7 +58,7 @@ export default function GodScimGroupMappingDialog({
               <GodScimMappingRow
                 key={mapping.projectId}
                 mapping={mapping}
-                projects={projects.data?.items ?? []}
+                projects={projects.data ?? []}
                 onChange={(patch) => form.update(index, patch)}
                 onRemove={() => form.remove(index)}
               />

@@ -1,11 +1,20 @@
-import { db, projectMember, scimGroupMapping, scimGroupMember } from '@repo/db';
-import { eq } from 'drizzle-orm';
+import {
+  db,
+  project,
+  projectMember,
+  scimGroupMapping,
+  scimGroupMember,
+  teamMember,
+} from '@repo/db';
+import { and, eq } from 'drizzle-orm';
 import { removeMember, setMembership, type MemberRole } from '#modules/members/service';
+import { listTeamMemberIds } from '#modules/teams/service';
+import { getLimits } from '#shared/limits';
 
-// Turns provisioned group membership into project membership. This is the only
-// place a project_member row is written from SCIM, and it only ever touches rows
-// it owns (`source: 'scim'`) — a membership somebody set up through an invite is
-// left exactly as it is, in either direction.
+// Turns provisioned group membership into project membership, and into the team
+// membership it stands on. This is the only place either row is written from SCIM,
+// and it only ever touches rows it owns (`source: 'scim'`) — a membership somebody
+// set up through an invite is left exactly as it is, in either direction.
 //
 // Called after a group's members or its mappings change.
 
@@ -48,6 +57,11 @@ async function desiredMembers(projectId: number): Promise<Map<string, Desired>> 
 
 async function reconcileProject(projectId: number): Promise<void> {
   const desired = await desiredMembers(projectId);
+  const [owner] = await db
+    .select({ teamId: project.teamId })
+    .from(project)
+    .where(eq(project.id, projectId));
+  if (!owner) return;
   const existing = await db
     .select({
       userId: projectMember.userId,
@@ -59,6 +73,11 @@ async function reconcileProject(projectId: number): Promise<void> {
     .where(eq(projectMember.projectId, projectId));
 
   const byUser = new Map(existing.map((row) => [row.userId, row]));
+  // A seat ceiling stops the provider from adding people the team has no room for.
+  // Those already in it keep their membership and still join the project.
+  const { maxTeamMembers } = await getLimits({ teamId: owner.teamId });
+  const seats =
+    maxTeamMembers > 0 ? new Set(await listTeamMemberIds(owner.teamId)) : new Set<string>();
   // Tracked as rows change so the last-owner guard below stays correct without
   // re-counting after every write.
   let owners = existing.filter((row) => row.role === 'owner').length;
@@ -66,6 +85,16 @@ async function reconcileProject(projectId: number): Promise<void> {
   for (const [userId, want] of desired) {
     const have = byUser.get(userId);
     if (!have) {
+      if (maxTeamMembers > 0 && !seats.has(userId)) {
+        if (seats.size >= maxTeamMembers) continue;
+        seats.add(userId);
+      }
+      // A project membership only exists on top of one in the team that owns the
+      // project, so the group grants that first. It never raises an existing rank.
+      await db
+        .insert(teamMember)
+        .values({ teamId: owner.teamId, userId, role: 'member', source: 'scim' })
+        .onConflictDoNothing();
       await db.insert(projectMember).values({
         projectId,
         userId,
@@ -92,8 +121,33 @@ async function reconcileProject(projectId: number): Promise<void> {
     // last one stays even when the group no longer grants it.
     if (row.role === 'owner' && owners <= 1) continue;
     await removeMember(projectId, row.userId);
+    await dropUnusedTeamMembership(owner.teamId, row.userId);
     if (row.role === 'owner') owners -= 1;
   }
+}
+
+// The team membership the group granted goes when the last project it granted in
+// that team does. Only a row the reconciliation owns: one somebody set up by hand is
+// left alone, as their project membership is, and so is a row whose rank was raised
+// afterwards — a team is left with owners and managers it did not have to re-appoint.
+export async function dropUnusedTeamMembership(teamId: number, userId: string): Promise<void> {
+  const remaining = await db
+    .select({ projectId: projectMember.projectId })
+    .from(projectMember)
+    .innerJoin(project, eq(project.id, projectMember.projectId))
+    .where(and(eq(project.teamId, teamId), eq(projectMember.userId, userId)))
+    .limit(1);
+  if (remaining.length > 0) return;
+  await db
+    .delete(teamMember)
+    .where(
+      and(
+        eq(teamMember.teamId, teamId),
+        eq(teamMember.userId, userId),
+        eq(teamMember.role, 'member'),
+        eq(teamMember.source, 'scim'),
+      ),
+    );
 }
 
 // The projects a group currently grants membership in. Read before and after a

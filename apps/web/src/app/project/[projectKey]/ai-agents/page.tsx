@@ -1,5 +1,5 @@
-import SettingsAiAgentsPage from '@/features/settings/SettingsAiAgentsPage';
+import ProjectAiAgentsSection from '@/features/teams/components/ai-agents/ProjectAiAgentsSection';
 
 export default function Page() {
-  return <SettingsAiAgentsPage />;
+  return <ProjectAiAgentsSection />;
 }

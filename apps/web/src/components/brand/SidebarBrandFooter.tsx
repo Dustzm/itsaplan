@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import ItsAPlanMark from '@/components/brand/ItsAPlanMark';
-import UpdatesDialog from '@/components/layout/UpdatesDialog';
+import ReleaseHistory from '@/features/whats-new/components/ReleaseHistory';
 import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { useAppVersionQuery, useUpdateStatusQuery } from '@/services/updates.service';
@@ -72,7 +72,7 @@ export default function SidebarBrandFooter() {
       >
         {content}
       </button>
-      {showUpdates && <UpdatesDialog status={status} onClose={() => setShowUpdates(false)} />}
+      {showUpdates && <ReleaseHistory status={status} onClose={() => setShowUpdates(false)} />}
     </>
   );
 }

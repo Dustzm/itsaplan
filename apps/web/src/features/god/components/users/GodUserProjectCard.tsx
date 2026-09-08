@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import type { InstanceUserProject, PermissionCatalog } from '@/lib/api';
 import { formatShortDate } from '@/utils/dates';
 import { Badge } from '@/components/ui/badge';
-import GodAccessCard from '../GodAccessCard';
+import AccessCard from '@/components/common/permissions/AccessCard';
 
 // One project the user can reach, as a row in the account panel.
 export default function GodUserProjectCard({
@@ -14,14 +14,12 @@ export default function GodUserProjectCard({
   project: InstanceUserProject;
   catalog: PermissionCatalog | undefined;
 }) {
-  const t = useTranslations('god.access');
+  const t = useTranslations('permissions');
   const tCommon = useTranslations('common');
   const isOwner = project.role === 'owner';
 
   return (
-    <GodAccessCard
-      isOwner={isOwner}
-      roleName={project.roleName}
+    <AccessCard
       permissions={project.permissions}
       catalog={catalog}
       header={

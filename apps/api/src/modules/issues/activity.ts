@@ -315,6 +315,8 @@ async function enqueueMentionRuns(
   mentionedAgentUserIds: string[],
 ): Promise<void> {
   if (mentionedAgentUserIds.length === 0 && comment.replyToId == null) return;
+  // A comment an agent wrote starts no run of its own, which stops agent-to-agent
+  // mention loops.
   if (comment.actorUserId && (await isAgentUser(comment.actorUserId))) return;
   const reachedUserIds = new Set(mentionedAgentUserIds);
   if (comment.replyToId != null) {
@@ -332,6 +334,7 @@ async function enqueueMentionRuns(
   for (const agent of agents) {
     await enqueueAgentRun({
       agentId: agent.id,
+      projectId,
       issueId: comment.issueId,
       sourceActivityId: comment.id,
       prompt: comment.body ?? '',

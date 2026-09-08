@@ -1,13 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, type PageParams } from '@/lib/api';
 import { qk } from '@/services/queryKeys';
 
-export function useAgentSchedules(projectKey: string) {
+// One page of the project's schedules. A page with a run still going is polled, so the
+// row's status catches up on its own.
+export function useAgentSchedules(projectKey: string, params: PageParams) {
   return useQuery({
-    queryKey: qk.agentSchedules(projectKey),
-    queryFn: () => api.listAgentSchedules(projectKey),
+    queryKey: qk.agentSchedulePage(projectKey, params),
+    queryFn: () => api.listAgentSchedules(projectKey, params),
+    placeholderData: keepPreviousData,
     refetchInterval: (query) =>
-      query.state.data?.some((schedule) => schedule.lastRunStatus === 'pending') ? 2000 : false,
+      query.state.data?.items.some((schedule) => schedule.lastRunStatus === 'pending')
+        ? 2000
+        : false,
   });
 }
 

@@ -16,10 +16,10 @@ import { qk } from '@/services/queryKeys';
 
 // A page of the project's initiatives. params filter (status/search), sort and
 // page it server-side; keepPreviousData holds the current page on screen while the
-// next one loads. Omit params to load the default first page.
-export function useInitiativesQuery(projectKey: string | null, params: InitiativeListParams = {}) {
+// next one loads.
+export function useInitiativesQuery(projectKey: string | null, params: InitiativeListParams) {
   return useQuery({
-    queryKey: qk.initiatives(projectKey ?? '', params as Record<string, unknown>),
+    queryKey: qk.initiatives(projectKey ?? '', params),
     queryFn: () => api.listInitiatives(projectKey!, params),
     enabled: projectKey != null,
     placeholderData: keepPreviousData,

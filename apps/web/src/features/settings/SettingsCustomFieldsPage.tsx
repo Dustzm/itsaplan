@@ -20,8 +20,6 @@ export default function SettingsCustomFieldsPage() {
     <SectionPageView
       title={sectionText.label}
       description={sectionText.description}
-      wide
-      widthClassName="min-w-[600px] max-w-[60%]"
       actions={
         <CustomFieldsToolbar
           projectKey={project.project.key}

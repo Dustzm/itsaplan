@@ -1,17 +1,4 @@
 {
-  "pager": {
-    "perPage": "每页",
-    "rowsPerPage": "每页行数",
-    "range": "第 {first}-{last} 项，共 {total} 项",
-    "previous": "上一页",
-    "next": "下一页"
-  },
-  "access": {
-    "owner": "所有者拥有完整访问权限，不受角色权限矩阵限制。",
-    "role": "根据“{role}”角色确定。",
-    "default": "未分配角色，使用默认成员权限。",
-    "joined": "加入于 {date}"
-  },
   "providers": {
     "credential": "密码",
     "google": "Google",
@@ -113,8 +100,7 @@
       "views": "视图",
       "agents": "AI 代理",
       "skills": "技能",
-      "tools": "工具",
-      "integrations": "集成"
+      "tools": "工具"
     },
     "members": "成员",
     "noMembersTitle": "暂无成员",
@@ -124,7 +110,7 @@
     "saved": "项目默认设置已保存",
     "projectDefaults": "项目默认设置",
     "mcpEnabled": "新项目默认启用 MCP",
-    "mcpEnabledHint": "新项目创建后即可通过 MCP 访问。"
+    "mcpEnabledHint": "新项目创建时即纳入所属团队的 MCP 覆盖范围。"
   },
   "authentication": {
     "saved": "身份验证设置已保存",
@@ -203,8 +189,8 @@
     "timeout": "超时（秒）",
     "optional": "可选",
     "apiKey": "API 密钥",
-    "projectNotifications": "项目通知",
-    "projectNotificationsHint": "允许项目使用此服务商发送通知。每个项目可以自行选择是否使用。",
+    "teamNotifications": "团队通知",
+    "teamNotificationsHint": "允许团队通过该提供商投递通知，而无需配置自己的提供商。是否使用仍由各团队决定。",
     "test": "发送测试邮件",
     "testing": "正在发送…",
     "testHint": "使用当前设置发送真实邮件，无需先保存。",

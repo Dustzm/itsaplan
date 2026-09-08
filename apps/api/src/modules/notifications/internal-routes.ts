@@ -1,13 +1,13 @@
 import { Elysia } from 'elysia';
 import { isInvitePending } from '#modules/invites/service';
 import { getDeliveryConfig } from '#modules/notification-settings/service';
+import { getProjectById } from '#modules/projects/service';
 import { sendDeliveryBody } from './model';
 import { sendDelivery } from './send';
 
 // Internal endpoint the worker calls to deliver one claimed notification_delivery
-// row. The project's channel credentials are encrypted at rest, so the send runs
-// here (in the API, which owns the encryption key and the config store) rather than
-// in the worker, mirroring /internal/agent-runs/execute. Authenticated with the
+// row. The channel credentials are encrypted at rest, so the send runs here (in the
+// API, which owns the encryption key and the config store) rather than in the worker, mirroring /internal/agent-runs/execute. Authenticated with the
 // shared WORKER_INTERNAL_TOKEN. Returns the SendResult so the worker records the
 // outcome and decides whether to retry.
 export const internalNotificationRoutes = new Elysia({
@@ -29,7 +29,11 @@ export const internalNotificationRoutes = new Elysia({
       // the outbox. Treat it as delivered so the worker removes the stale row.
       return { ok: true };
     }
-    const config = await getDeliveryConfig(body.projectId);
+    // The row names the project it came from; the credentials belong to the team
+    // that owns it.
+    const project = await getProjectById(body.projectId);
+    if (!project) return { ok: false, retryable: false, error: 'Project not found' };
+    const config = await getDeliveryConfig(project.teamId);
     return sendDelivery({
       channel: body.channel,
       recipient: body.recipient,
@@ -42,9 +46,9 @@ export const internalNotificationRoutes = new Elysia({
     detail: {
       summary: 'Send one notification delivery',
       description:
-        "Send a claimed delivery over its channel with the project's stored credentials and " +
-        'return the result the worker records. Called by the worker with the x-worker-token ' +
-        'header.',
+        'Send a claimed delivery over its channel with the stored credentials of the team that ' +
+        'owns its project, and return the result the worker records. Called by the worker with ' +
+        'the x-worker-token header.',
     },
   },
 );

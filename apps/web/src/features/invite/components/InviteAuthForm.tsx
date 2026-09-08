@@ -64,7 +64,7 @@ export default function InviteAuthForm({
           token,
           registerFailed: t('registerFailed'),
         });
-        router.push(projectPath(result.projectKey));
+        router.push(result.projectKey ? projectPath(result.projectKey) : '/');
         router.refresh();
       } else {
         await signInForInvite({ email, password, signInFailed: t('signInFailed') });

@@ -16,12 +16,7 @@ export default function SettingsGitPage() {
   const { project } = useShell();
   if (!project) return null;
   return (
-    <SectionPageView
-      title={sectionText.label}
-      description={sectionText.description}
-      wide
-      widthClassName="min-w-[600px] max-w-[60%]"
-    >
+    <SectionPageView title={sectionText.label} description={sectionText.description}>
       <SettingsResourceProvider resource={section.resource}>
         <RequirePermission resource={section.resource} action="read">
           <SettingsGit project={project} />

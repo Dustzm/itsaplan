@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type CyclePatch, type NewCycleInput } from '@/lib/api';
+import { api, nextPageParam, type CyclePatch, type NewCycleInput } from '@/lib/api';
 import { qk } from '@/services/queryKeys';
 
 // How many finished cycles the archive loads at a time.
@@ -56,8 +56,7 @@ export function useCompletedCyclesQuery(projectKey: string | null) {
     queryFn: ({ pageParam }) =>
       api.listCompletedCycles(projectKey!, { page: pageParam, pageSize: COMPLETED_CYCLES_PAGE }),
     initialPageParam: 1,
-    getNextPageParam: (lastPage) =>
-      lastPage.page * lastPage.pageSize < lastPage.total ? lastPage.page + 1 : undefined,
+    getNextPageParam: nextPageParam,
     enabled: projectKey != null,
   });
 }

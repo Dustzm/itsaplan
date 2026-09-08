@@ -51,7 +51,6 @@
         "toggle": "Open the command palette"
       },
       "project": {
-        "switch": "Switch to project 1–9",
         "new": "New project",
         "settings": "Open project settings"
       },
@@ -63,6 +62,9 @@
       },
       "issue": {
         "new": "New issue"
+      },
+      "initiative": {
+        "new": "New initiative"
       },
       "view": {
         "kanban": "Board layout",
@@ -171,10 +173,22 @@
     "tableDeleteRow": "Delete row",
     "tableAddColumn": "Add column",
     "tableDeleteColumn": "Delete column",
-    "tableDelete": "Delete table"
+    "tableDelete": "Delete table",
+    "insertImage": "Insert image",
+    "insertNamed": "Insert {name}",
+    "noImages": "No images attached yet. Upload one from the Attachments panel, or drop it straight onto the editor.",
+    "image": "Image"
   },
   "chart": {
     "download": "Save chart",
     "downloadFailed": "The chart could not be saved"
+  },
+  "agent": "Agent",
+  "pager": {
+    "previous": "Previous page",
+    "next": "Next page",
+    "page": "Page {number}",
+    "perPage": "per page",
+    "range": "{first}-{last} of {total}"
   }
 }

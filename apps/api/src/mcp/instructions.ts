@@ -36,6 +36,13 @@ then list_issues for each relevant project with assigneeUserId set to that user'
 id. list_notifications and get_unread_notification_count read that user's inbox
 directly and need no user id.
 
+## Teams
+
+A team owns the projects, the AI agents, the skills and the configured tools. It is
+taken from your key: an agent's key acts in its own team, and so does a person who
+belongs to one team, so those tools take no teamId. A person in several teams passes
+teamId on each call and gets the ids from list_teams.
+
 ## Columns and state
 
 Column names are chosen per project and cannot be assumed. The stable part is the
