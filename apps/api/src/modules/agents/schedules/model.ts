@@ -1,4 +1,5 @@
 import { t } from 'elysia';
+import { pageQueryFields, pageResponse } from '#shared/pagination';
 
 import { runContextTokens } from '../model';
 
@@ -57,7 +58,9 @@ export const AgentScheduleResponse = t.Object({
   updatedAt: t.String(),
 });
 
-export const AgentScheduleListResponse = t.Array(AgentScheduleResponse);
+export const AgentSchedulePageResponse = pageResponse(AgentScheduleResponse);
+
+export const agentSchedulePageQuery = t.Object(pageQueryFields);
 
 // One run of a schedule (ScheduleRunRow from the service), with the agent's answer in
 // `output` once the run has finished.

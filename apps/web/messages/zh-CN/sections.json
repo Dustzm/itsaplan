@@ -57,10 +57,6 @@
       "label": "常规",
       "description": "设置项目名称、描述和启用的功能区。"
     },
-    "notifications": {
-      "label": "通知提供商",
-      "description": "设置此项目发送通知所用的邮件（SMTP 或 Resend）和 Telegram 机器人凭据。"
-    },
     "states": {
       "label": "状态",
       "description": "设置工作项在工作流中经过的状态，每个状态显示为一个状态列。"
@@ -102,20 +98,8 @@
       "description": "当关联的拉取请求在 GitHub、GitLab、Gitea、Forgejo 或 Bitbucket 上合并时关闭工作项。"
     },
     "ai-agents": {
-      "label": "代理",
-      "description": "可以接受工作项委派的 AI 代理。"
-    },
-    "integrations": {
-      "label": "集成",
-      "description": "代理访问 AI 提供商和工具时使用的凭据。"
-    },
-    "agent-skills": {
-      "label": "技能",
-      "description": "内置代理可按需加载的可复用指令。"
-    },
-    "agent-tools": {
-      "label": "工具",
-      "description": "代理可以调用的工具，每个工具连接到一个集成凭据。"
+      "label": "AI 队友",
+      "description": "在该项目中工作的 AI 队友。"
     }
   }
 }

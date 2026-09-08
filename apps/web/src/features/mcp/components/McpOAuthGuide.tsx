@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import SettingsCard from '@/components/common/page/SettingsCard';
-import McpCodeBlock from './McpCodeBlock';
+import CodeBlock from '@/components/common/CodeBlock';
 
 type McpOAuthGuideProps = {
   mcpUrl: string;
@@ -19,11 +19,11 @@ export default function McpOAuthGuide({ mcpUrl, discoveryUrl }: McpOAuthGuidePro
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <span className="text-xs font-medium text-muted-foreground">{t('endpoint')}</span>
-          <McpCodeBlock code={mcpUrl} />
+          <CodeBlock code={mcpUrl} />
         </div>
         <div className="space-y-2">
           <span className="text-xs font-medium text-muted-foreground">{t('oauth.discovery')}</span>
-          <McpCodeBlock code={discoveryUrl} />
+          <CodeBlock code={discoveryUrl} />
         </div>
       </div>
 

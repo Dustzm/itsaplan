@@ -23,7 +23,7 @@ describe('hasPermission', () => {
     expect(hasPermission(p, 'members_manage', 'create')).toBe(true);
   });
 
-  it('grants the default member full work_items but not member management', () => {
+  it('grants the default member full work_items, and the member list to read only', () => {
     const p = defaultMemberPermissions();
     expect(hasPermission(p, 'work_items', 'create')).toBe(true);
     expect(hasPermission(p, 'work_items', 'delete')).toBe(true);
@@ -33,7 +33,9 @@ describe('hasPermission', () => {
     expect(hasPermission(p, 'documents', 'delete')).toBe(true);
     expect(hasPermission(p, 'dashboards', 'read')).toBe(true);
     expect(hasPermission(p, 'dashboards', 'edit')).toBe(false);
-    expect(hasPermission(p, 'members_manage', 'read')).toBe(false);
+    expect(hasPermission(p, 'members_manage', 'read')).toBe(true);
+    expect(hasPermission(p, 'members_manage', 'edit')).toBe(false);
+    expect(hasPermission(p, 'members_manage', 'delete')).toBe(false);
   });
 });
 

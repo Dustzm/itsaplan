@@ -1,17 +1,16 @@
 // React Query hooks for everything the settings feature reads and writes: the
 // project's structural entities (columns, issue types, labels and label groups,
-// custom fields, issue templates), the workflow configuration, the project notification delivery
-// settings, and the session member's own notification preferences. Structural
-// writes go through useProjectMutation and invalidate the project detail; the
-// settings and notification writes return the stored result and put it straight
-// into the cache. This module wraps the low-level fetch client (api.ts).
+// custom fields, issue templates), the workflow configuration, and the session
+// member's own notification preferences. Structural writes go through
+// useProjectMutation and invalidate the project detail; the settings and
+// notification writes return the stored result and put it straight into the cache.
+// This module wraps the low-level fetch client (api.ts).
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
   type AutoArchiveSettings,
   type EstimateSettings,
-  type NotificationSettingsPatch,
   type NotificationPreferences,
   type ProjectFeatures,
   type SubtaskAutomationSettings,
@@ -245,24 +244,6 @@ export function useUpdateProjectFeatures(projectKey: string) {
     mutationFn: (input: Partial<ProjectFeatures>) =>
       api.updateProjectSettings(projectKey, { features: input }),
     onSuccess: () => invalidate(),
-  });
-}
-
-// Notifications section: the project's notification delivery settings. A write
-// returns the redacted result, which replaces the cache directly.
-export function useNotificationSettingsQuery(projectKey: string) {
-  return useQuery({
-    queryKey: qk.notificationSettings(projectKey),
-    queryFn: () => api.getNotificationSettings(projectKey),
-  });
-}
-
-export function useUpdateNotificationSettings(projectKey: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: NotificationSettingsPatch) =>
-      api.setNotificationSettings(projectKey, input),
-    onSuccess: (data) => qc.setQueryData(qk.notificationSettings(projectKey), data),
   });
 }
 

@@ -2,7 +2,7 @@ import { t } from 'elysia';
 
 import { agentRunTrigger, runContextTokens } from '../model';
 
-export { agentParams } from '../model';
+export { agentParams, projectAgentParams } from '../model';
 
 export const threadParams = t.Object({
   projectKey: t.String(),
@@ -86,20 +86,19 @@ const configFields = {
       description: 'Seconds a delegation run waits before the agent may pick it up.',
     }),
   ),
-  roleId: t.Optional(
-    t.Nullable(
-      t.Integer({
-        description:
-          'Role from list_roles the bot acts under, capping what its tools may do; null uses the ' +
-          'default role.',
-      }),
-    ),
+  projectIds: t.Optional(
+    t.Array(t.Integer(), {
+      description:
+        'Projects of the team the agent works in, from list_projects. Replaces the set: a ' +
+        'project left out is detached. A project of another team is rejected. The agent ' +
+        "joins on the team's default role; set_member_role changes it per project.",
+    }),
   ),
   runnerScope: t.Optional(
-    t.Union([t.Literal('owner'), t.Literal('project')], {
+    t.Union([t.Literal('owner'), t.Literal('team')], {
       description:
         "Which runs an external agent's runner receives: 'owner' only the creator's, " +
-        "'project' any member's.",
+        "'team' any member's.",
     }),
   ),
 };
@@ -107,7 +106,10 @@ const configFields = {
 // An agent DTO (AiAgentRow from the service).
 export const AiAgentResponse = t.Object({
   id: t.Number(),
-  projectId: t.Number(),
+  teamId: t.Number(),
+  projects: t.Array(t.Object({ id: t.Number(), key: t.String(), name: t.String() }), {
+    description: 'The projects of the team the agent works in.',
+  }),
   userId: t.String(),
   name: t.String(),
   username: t.String(),
@@ -122,11 +124,10 @@ export const AiAgentResponse = t.Object({
   memoryLastMessages: t.Nullable(t.Number()),
   triggerOnMention: t.Boolean(),
   triggerOnAssign: t.Boolean(),
-  fieldTriggers: t.Array(t.Object({ fieldId: t.Number(), delaySec: t.Number() })),
+  fieldTriggers: t.Array(t.Object({ fieldId: t.Number(), name: t.String(), delaySec: t.Number() })),
   delegationDelaySec: t.Number(),
-  roleId: t.Nullable(t.Number()),
   ownerUserId: t.Nullable(t.String()),
-  runnerScope: t.Union([t.Literal('owner'), t.Literal('project')]),
+  runnerScope: t.Union([t.Literal('owner'), t.Literal('team')]),
   lastSeenAt: t.Nullable(t.String()),
   createdAt: t.String(),
   apiKeyStart: t.Nullable(t.String()),
@@ -259,6 +260,20 @@ export const updateAgentBody = t.Object({
   name: t.Optional(t.String({ minLength: 1 })),
   username: t.Optional(username),
   ...configFields,
+});
+
+// The team agent list, optionally narrowed to the agents working in one project.
+export const agentListQuery = t.Object({
+  projectId: t.Optional(t.Numeric({ description: 'Only the agents working in this project.' })),
+});
+
+export const setAgentProjectsBody = t.Object({
+  projectIds: t.Array(t.Integer(), {
+    description:
+      'Projects of the team the agent works in. Replaces the set: a project left out is ' +
+      "detached. The agent joins on the team's default role; set_member_role changes it per " +
+      'project.',
+  }),
 });
 
 export const runsQuery = t.Object({

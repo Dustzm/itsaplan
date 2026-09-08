@@ -10,6 +10,9 @@ See root `AGENTS.md` for monorepo-wide rules.
   regenerate with `bun run auth:generate` (from the auth package / root).
 - `src/schema/app.ts` — hand-written application tables. Add domain tables here.
 - `src/schema/index.ts` — re-exports every table; `drizzle.config.ts` points at it.
+- `src/permissions.ts` — the permission matrix stored in `team_role.permissions`: the
+  resource/action catalog, the default member role, and the normalizer. It lives here
+  because the API and the sign-up hook in `@repo/auth` both write it.
 - `src/migrate.ts` — programmatic migrator run on api container startup (no drizzle-kit in prod).
 - `drizzle/` — generated SQL migrations (committed).
 
@@ -21,6 +24,26 @@ See root `AGENTS.md` for monorepo-wide rules.
 
 Migrations only — never `drizzle-kit push`. Every schema change goes through a
 committed migration in `drizzle/`.
+
+## Team-owned agents
+
+An AI agent is a row in `ai_agent` with a `team_id` and a `user_id`: the team that owns
+it, and the bot user it acts as. The team is the boundary — there is no instance-level
+agent and no flag on `user` marking a non-human identity, so anything that has to
+enumerate agents does it through `ai_agent`.
+
+What the team owns with it: `agent_skill`, `agent_tool` and `integration_credential`
+all carry a `team_id` and are shared by every project of the team. `agent_schedule` and
+`agent_run` carry a `project_id` — a run happens in one project.
+
+The projects an agent works in are its bot user's `project_member` rows, the same as for
+a person, and the `role_id` on each of them is what its requests are checked against —
+per project, so one agent can hold different roles in two of them. Its rights in a
+project are the intersection of that role and the actions in `ai_agent.tools`.
+`team_member.role` takes a fourth value, `'agent'`, so an agent stands in the team
+without being a person in it.
+
+`ai_agent_team_username_uq` makes the mention handle unique per team, not per project.
 
 ## Revision engine
 

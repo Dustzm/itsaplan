@@ -2,7 +2,7 @@ import { t } from 'elysia';
 
 import { contextUsageBody } from '../model';
 
-export { agentParams } from '../model';
+export { projectAgentParams } from '../model';
 
 // A chat with an external agent is carried by AG-UI events (https://docs.ag-ui.com):
 // the runner reports what its coding agent produces as this event stream, and the

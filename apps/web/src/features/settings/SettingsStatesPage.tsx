@@ -20,8 +20,6 @@ export default function SettingsStatesPage() {
     <SectionPageView
       title={sectionText.label}
       description={sectionText.description}
-      wide
-      widthClassName="min-w-[600px] max-w-[60%]"
       actions={<StatesToolbar projectKey={project.project.key} columns={project.columns} />}
     >
       <SettingsResourceProvider resource={section.resource}>

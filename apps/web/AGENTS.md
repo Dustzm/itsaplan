@@ -13,6 +13,11 @@ Next.js App Router, SSR (not SPA). Tailwind v4 + shadcn/ui. See root `AGENTS.md`
   `components/common`.
 - The shared layer never imports a feature. `app/` routes stay thin: mount the feature page and
   providers only.
+- **`@/cloud` is the seam for the hosted edition.** It resolves to `src/ce/index.ts`, which
+  exports what a self-hosted instance runs — a screen it does not sell renders nothing. A
+  cloud-only component is imported from there and nowhere else. The hosted build points
+  `CLOUD_UI_ENTRY` at its own module exporting the same names, and `WEB_TRACING_ROOT` at the
+  root its workspace has; unset, both are what this repository needs.
 
 ## Feature structure & decomposition
 
@@ -41,9 +46,9 @@ Next.js App Router, SSR (not SPA). Tailwind v4 + shadcn/ui. See root `AGENTS.md`
   packages (`api.ts`, `auth-client.ts`, `markdown.ts`, `dnd.ts`) plus shadcn's `utils.ts` (`cn`,
   fixed by `components.json`); `src/utils` holds own helpers and constants with no external
   package behind them. `src/context` holds shared React contexts and their `use*` readers.
-- `components/common` groups by purpose: `agent-chat/`, `editor/`, `fields/`, `inputs/`, `page/`,
-  `overlay/`, `permissions/`, `hotkeys/`, `skeleton/`. A component that fits none of them stays at the
-  `common/` root.
+- `components/common` groups by purpose: `agent-chat/`, `attachments/`, `chart/`, `editor/`,
+  `fields/`, `hotkeys/`, `inputs/`, `overlay/`, `page/`, `permissions/`, `share/`, `skeleton/`,
+  `timeline/`. A component that fits none of them stays at the `common/` root.
   Imports of a sibling in the same folder are relative; everything else uses `@/`.
 - Component files use the feature name as a PascalCase prefix, file name = exported name. Service
   files carry a `.service.ts` suffix (`passkeys.service.ts`). Other non-component files use plain
@@ -85,6 +90,14 @@ next-intl, language from the `NEXT_LOCALE` cookie — no `[locale]` route segmen
 - A screen that has to stay live calls `useLiveRefresh({ scope, targets })` with a scope from
   `@/utils/revScopes` — never its own polling. `SyncProvider` polls every registered scope in one
   request and invalidates the targets of the ones that moved.
+- **A paged list holds its window in `usePaging()` and renders `ListPager`.** The hook owns
+  `page`/`pageSize`; a filter change calls its `reset()`, and `ListPager` pulls the page back
+  when deleting rows leaves the reader past the end. Spread `paging.params` straight into the
+  query — the API takes `page`/`pageSize` and answers `{ items, total, page, pageSize }`.
+  A "show more" list reads the same route through `useInfiniteQuery` with
+  `getNextPageParam: nextPageParam` (`useCompletedCyclesQuery` is the shape to copy); a feed
+  reads a cursor route instead. A picker that needs every row calls the list's `/options`
+  endpoint — never a paged one with a large `pageSize`.
 - Call the backend over HTTP at the API origin. `lib/api.ts` takes it from
   `utils/runtimeEnv`, which reads `API_URL` in the server process and hands it to the
   browser through the inline script in `components/runtime-env-script.tsx`. A per-instance
@@ -94,6 +107,21 @@ next-intl, language from the `NEXT_LOCALE` cookie — no `[locale]` route segmen
   streams them from the api), not from an absolute api url. That keeps them local images
   for `next/image`: `images.remotePatterns` is frozen into the standalone build, so an
   api origin listed there would only be valid for the instance that built the image.
+- **Every write to the API tells the user how it went.** A failed mutation is toasted by the
+  `MutationCache` in `components/providers.tsx`, so a call site adds nothing for the failure;
+  it adds the `toast.success(...)` for the success, from the mutation's `onSuccess`, with a
+  translated message naming what was saved. A write whose result the screen already shows —
+  a row that appears, a field that fills in, a dialog that closes on the created entity — needs
+  no success toast; one whose effect is invisible does. A mutation that renders its own error
+  instead opts out with `meta: { suppressErrorToast: true }`.
+- **A reader gets values, not disabled controls.** When the current user may not change a
+  setting, render its state — an icon plus a word, a plain row — instead of a switch, input,
+  or button that is disabled. A disabled control reads the same whether it is off or merely
+  locked. Say once, next to the setting, who can change it. And when a switch that gates a
+  whole section is off, drop the section: the settings under it and the instructions that
+  depend on them change nothing until it is on. One read-only state looks the same everywhere:
+  the same icon and the same wording for on and off, in the row the control would have taken —
+  reuse the component that already renders it rather than styling a second variant.
 - Add shadcn components with `bunx shadcn@latest add <name>` (config in `components.json`).
 - **Don't edit `src/components/ui/`** — those files are generated and re-adding a component
   overwrites them. Style them from the outside instead: every primitive carries a `data-slot`

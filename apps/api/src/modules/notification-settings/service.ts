@@ -1,12 +1,13 @@
-import { db, projectNotificationSetting } from '@repo/db';
+import { db, teamNotificationSetting } from '@repo/db';
 import { eq, sql } from 'drizzle-orm';
 import { encryptSecret, decryptSecret } from '@repo/crypto';
 import type { SmtpConfig, ResendConfig } from '@repo/mailer';
+import { HttpError } from '#shared/lib';
 
-// Data access for a project's notification provider credentials: the outbound
-// channels the project can deliver through (SMTP or Resend for email, a Telegram
-// bot). One row per project, managed by an owner. The full config carries secrets,
-// so it is stored encrypted as one JSON blob; the `redacted` column holds the same
+// Data access for a team's notification provider credentials: the outbound channels
+// every project of the team delivers through (SMTP or Resend for email, a Telegram
+// bot). One row per team, managed by its owner. The full config carries secrets, so
+// it is stored encrypted as one JSON blob; the `redacted` column holds the same
 // config with secret values dropped and replaced by `hasX` flags, for the settings
 // UI. The plaintext config is only read by the delivery sender; it is never returned
 // over HTTP. Which events reach a given member, and their Telegram chat id, are a
@@ -25,8 +26,8 @@ interface TelegramConfig {
 // The stored, decrypted config. Secret fields carry the plaintext value. Read by
 // the delivery sender through getDeliveryConfig; never returned over HTTP.
 export interface NotificationConfig {
-  // Send email through the instance provider instead of the project's own. Carries
-  // no credentials: they belong to the instance and are read at send time. A project
+  // Send email through the instance provider instead of the team's own. Carries
+  // no credentials: they belong to the instance and are read at send time. A team
   // that enables SMTP or Resend of its own takes precedence over this.
   system: { enabled: boolean };
   smtp: SmtpConfig;
@@ -34,9 +35,9 @@ export interface NotificationConfig {
   telegram: TelegramConfig;
 }
 
-// Which provider sends this project's email: its own SMTP/Resend when one is
-// enabled, otherwise the instance provider when the project asked for it. 'none'
-// means email delivery is off for the project.
+// Which provider sends this team's email: its own SMTP/Resend when one is
+// enabled, otherwise the instance provider when the team asked for it. 'none'
+// means email delivery is off for the team.
 export function emailSource(config: {
   system: { enabled: boolean };
   smtp: { enabled: boolean };
@@ -85,7 +86,7 @@ export interface NotificationSettingsPatch {
 
 function defaultConfig(): NotificationConfig {
   return {
-    // A project sends through the instance provider until it configures its own, so
+    // A team sends through the instance provider until it configures its own, so
     // notifications work out of the box wherever the instance shares one.
     system: { enabled: true },
     smtp: {
@@ -145,10 +146,10 @@ function applyPatch(
   if (patch.smtp) {
     next.smtp = {
       enabled: patch.smtp.enabled,
-      host: patch.smtp.host,
+      host: patch.smtp.host.trim(),
       port: patch.smtp.port,
       encryption: patch.smtp.encryption,
-      username: patch.smtp.username,
+      username: patch.smtp.username.trim(),
       password: mergeSecret(current.smtp.password, patch.smtp.password),
       timeout: patch.smtp.timeout,
     };
@@ -169,49 +170,65 @@ function applyPatch(
   return next;
 }
 
-// Reads and decrypts the stored config, or null when the project has none yet.
-async function readConfig(projectId: number): Promise<NotificationConfig | null> {
+// An enabled provider with no usable credentials drops every message in the delivery
+// path without reporting an error. Checked on the merged config, so a save that leaves
+// a stored secret untouched passes.
+function assertSendable(config: NotificationConfig): void {
+  if (config.smtp.enabled) {
+    if (config.smtp.host.length === 0) throw new HttpError(400, 'SMTP host is required');
+    if (config.smtp.username.length > 0 && config.smtp.password.length === 0) {
+      throw new HttpError(400, 'SMTP password is required for this username');
+    }
+  }
+  if (config.resend.enabled && config.resend.apiKey.length === 0) {
+    throw new HttpError(400, 'A Resend API key is required');
+  }
+}
+
+// Reads and decrypts the stored config, or null when the team has none yet.
+async function readConfig(teamId: number): Promise<NotificationConfig | null> {
   const rows = await db
     .select({
-      ciphertext: projectNotificationSetting.ciphertext,
-      iv: projectNotificationSetting.iv,
-      authTag: projectNotificationSetting.authTag,
+      ciphertext: teamNotificationSetting.ciphertext,
+      iv: teamNotificationSetting.iv,
+      authTag: teamNotificationSetting.authTag,
     })
-    .from(projectNotificationSetting)
-    .where(eq(projectNotificationSetting.projectId, projectId));
+    .from(teamNotificationSetting)
+    .where(eq(teamNotificationSetting.teamId, teamId));
   const row = rows[0];
   if (!row) return null;
   // Merge over the default so a config written before a field was added stays valid.
   return { ...defaultConfig(), ...(JSON.parse(decryptSecret(row)) as NotificationConfig) };
 }
 
-// The redacted settings for a project. Defaults (no secrets, no provider of its own,
+// The redacted settings for a team. Defaults (no secrets, no provider of its own,
 // delivery through the instance provider) when nothing has been saved.
-export async function getNotificationSettings(projectId: number): Promise<NotificationSettingsDto> {
-  const config = (await readConfig(projectId)) ?? defaultConfig();
+export async function getNotificationSettings(teamId: number): Promise<NotificationSettingsDto> {
+  const config = (await readConfig(teamId)) ?? defaultConfig();
   return toDto(config);
 }
 
 // Applies a patch and returns the redacted result. Upserts the single row.
 export async function setNotificationSettings(
-  projectId: number,
+  teamId: number,
   patch: NotificationSettingsPatch,
 ): Promise<NotificationSettingsDto> {
-  const current = (await readConfig(projectId)) ?? defaultConfig();
+  const current = (await readConfig(teamId)) ?? defaultConfig();
   const next = applyPatch(current, patch);
+  assertSendable(next);
   const redacted = toDto(next);
   const enc = encryptSecret(JSON.stringify(next));
   await db
-    .insert(projectNotificationSetting)
+    .insert(teamNotificationSetting)
     .values({
-      projectId,
+      teamId,
       ciphertext: enc.ciphertext,
       iv: enc.iv,
       authTag: enc.authTag,
       redacted,
     })
     .onConflictDoUpdate({
-      target: projectNotificationSetting.projectId,
+      target: teamNotificationSetting.teamId,
       set: {
         ciphertext: enc.ciphertext,
         iv: enc.iv,
@@ -225,13 +242,13 @@ export async function setNotificationSettings(
 
 // The redacted settings read straight from the plaintext `redacted` column, without
 // decrypting. Used by the outbound enqueue path to decide which channels are enabled.
-// Cheaper than getNotificationSettings, which decrypts the secret blob. A project that
+// Cheaper than getNotificationSettings, which decrypts the secret blob. A team that
 // saved nothing gets the defaults, so it delivers through the instance provider.
-export async function readRedactedSettings(projectId: number): Promise<NotificationSettingsDto> {
+export async function readRedactedSettings(teamId: number): Promise<NotificationSettingsDto> {
   const rows = await db
-    .select({ redacted: projectNotificationSetting.redacted })
-    .from(projectNotificationSetting)
-    .where(eq(projectNotificationSetting.projectId, projectId));
+    .select({ redacted: teamNotificationSetting.redacted })
+    .from(teamNotificationSetting)
+    .where(eq(teamNotificationSetting.teamId, teamId));
   const redacted = rows[0]?.redacted as NotificationSettingsDto | undefined;
   // Merge over the default, as readConfig does, so a row written before a field was
   // added stays valid.
@@ -240,6 +257,6 @@ export async function readRedactedSettings(projectId: number): Promise<Notificat
 
 // The full decrypted config, for the sender that actually delivers a notification.
 // Carries secrets, so it is only called server-side by the delivery sender.
-export async function getDeliveryConfig(projectId: number): Promise<NotificationConfig> {
-  return (await readConfig(projectId)) ?? defaultConfig();
+export async function getDeliveryConfig(teamId: number): Promise<NotificationConfig> {
+  return (await readConfig(teamId)) ?? defaultConfig();
 }

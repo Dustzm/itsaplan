@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "عرض الصلاحيات",
   "none": "لم تُمنح أي صلاحيات",
   "grantedCount": "{count, plural, zero {مفيش صلاحيات ممنوحة} one {صلاحية واحدة ممنوحة} two {صلاحيتين ممنوحين} few {# صلاحيات ممنوحة} many {# صلاحية ممنوحة} other {# صلاحية ممنوحة}}",
   "resources": {
@@ -45,5 +44,7 @@
   },
   "resourceColumn": "المورد",
   "allowed": "مسموح",
-  "notAllowed": "غير مسموح"
+  "notAllowed": "غير مسموح",
+  "accessHeading": "الوصول للمشروع ده",
+  "joined": "انضم في {date}"
 }

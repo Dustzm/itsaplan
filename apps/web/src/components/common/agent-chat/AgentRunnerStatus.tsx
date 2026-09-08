@@ -20,7 +20,7 @@ export function AgentRunnerStatus({
   agent: AiAgent | null;
   compact?: boolean;
 }) {
-  const t = useTranslations('settings.agents');
+  const t = useTranslations('teams.agents');
   const lastSeen = agent?.lastSeenAt ?? null;
   const online = isRunnerOnline(agent);
 

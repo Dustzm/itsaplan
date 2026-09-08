@@ -67,7 +67,7 @@ export const chatAttachmentRoutes = new Elysia({
   .use(authContext)
   .use(guards)
   .macro({
-    chatAttachment: entityGuard('work_items', 'Attachment not found', (p) =>
+    chatAttachment: entityGuard('ai_agents', 'Attachment not found', (p) =>
       getChatAttachmentProjectId(p.publicId),
     ),
   })
@@ -120,7 +120,7 @@ export const chatAttachmentRoutes = new Elysia({
     {
       body: uploadChatAttachmentBody,
       params: projectKeyParams,
-      permission: ['work_items', 'create'],
+      permission: ['ai_agents', 'read'],
       response: { 201: ChatAttachmentResponse, ...commonErrors, ...errors(413, 502) },
       detail: {
         summary: 'Upload a chat attachment',

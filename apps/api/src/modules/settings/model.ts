@@ -37,3 +37,36 @@ export const UpdateStatusSchema = t.Object({
 });
 
 export const VersionResponse = t.Object({ version: t.String() });
+
+const RenameSchema = t.Object({ from: t.String(), to: t.String() });
+
+// What migration 0115 did to this instance's data, as the migration recorded it.
+const TeamsMigrationSchema = t.Object({
+  version: t.Number(),
+  teams: t.Array(
+    t.Object({
+      name: t.String(),
+      projects: t.Array(t.Object({ key: t.String(), name: t.String() })),
+    }),
+  ),
+  renamed: t.Record(t.String(), t.Array(RenameSchema)),
+  merged: t.Object({ roles: t.Number(), agentTools: t.Number() }),
+  movedInvites: t.Number(),
+  droppedNotificationSettings: t.Array(t.String()),
+});
+
+const BackupSchema = t.Object({
+  path: t.String(),
+  sizeBytes: t.Number(),
+  createdAt: t.String(),
+  expiresAt: t.String(),
+  migrations: t.Array(t.String()),
+});
+
+export const WhatsNewSchema = t.Object({
+  version: t.String(),
+  pending: t.Boolean(),
+  releases: t.Array(ReleaseSchema),
+  backup: t.Nullable(BackupSchema),
+  migration: t.Nullable(TeamsMigrationSchema),
+});

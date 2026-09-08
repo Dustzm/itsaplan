@@ -3,6 +3,7 @@ import { app, apiKeyApi, authedApi, type Api } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
 import { addProjectMember } from '#tests/helpers/members';
+import { createAgent, teamOf } from '#tests/helpers/agents';
 
 // Chatting with an external agent: a member sends a message, the agent's runner claims
 // it, reports what its command produces as AG-UI events, and closes it. The claim waits
@@ -15,7 +16,7 @@ async function setup() {
   const owner = await signUpTestUser({ name: 'Owner' });
   const asOwner = authedApi(owner.cookie);
   await asOwner.projects.post({ key: 'MKT', name: 'Marketing' });
-  const created = await asOwner.projects({ projectKey: 'MKT' })['ai-agents'].post({
+  const created = await createAgent(asOwner, 'MKT', {
     name: 'Ext Bot',
     username: 'ext',
     kind: 'external',
@@ -91,7 +92,10 @@ describe('external agent chat', () => {
 
   it("mixes the agent's own instructions into the system prompt", async () => {
     const { asOwner, asRunner, agent } = await setup();
-    await chatOf(asOwner, agent.id).patch({ instructions: 'Always answer in German.' });
+    await asOwner
+      .teams({ teamId: await teamOf(asOwner, 'MKT') })
+      ['ai-agents']({ agentId: agent.id })
+      .patch({ instructions: 'Always answer in German.' });
     await send(asOwner, agent.id, 'Status?');
 
     const claimed = await asRunner['agent-chats'].claim.post();
@@ -613,9 +617,11 @@ describe('external agent chat', () => {
       (await chatOf(asMember, agent.id).chat({ messageId: answer.id }).events.get()).status,
     ).toBe(404);
 
-    const other = await asOwner
-      .projects({ projectKey: 'MKT' })
-      ['ai-agents'].post({ name: 'Other Bot', username: 'other', kind: 'external' });
+    const other = await createAgent(asOwner, 'MKT', {
+      name: 'Other Bot',
+      username: 'other',
+      kind: 'external',
+    });
     const asOtherRunner = apiKeyApi(other.data!.apiKey!);
     expect(
       (
@@ -628,9 +634,11 @@ describe('external agent chat', () => {
 
   it('takes chat messages only for an external agent, and only from its own key', async () => {
     const { asOwner, agent } = await setup();
-    const internal = await asOwner
-      .projects({ projectKey: 'MKT' })
-      ['ai-agents'].post({ name: 'In Bot', username: 'in', kind: 'internal' });
+    const internal = await createAgent(asOwner, 'MKT', {
+      name: 'In Bot',
+      username: 'in',
+      kind: 'internal',
+    });
 
     // An internal agent is chatted with through /run and /run/stream instead.
     expect((await send(asOwner, internal.data!.agent.id, 'Hello')).status).toBe(400);
@@ -641,7 +649,10 @@ describe('external agent chat', () => {
 
   it("keeps an owner-scoped agent's chat to its owner", async () => {
     const { asOwner, agent } = await setup();
-    await chatOf(asOwner, agent.id).patch({ runnerScope: 'owner' });
+    await asOwner
+      .teams({ teamId: await teamOf(asOwner, 'MKT') })
+      ['ai-agents']({ agentId: agent.id })
+      .patch({ runnerScope: 'owner' });
     const asMember = await addProjectMember(asOwner, 'MKT');
 
     expect((await send(asMember, agent.id, 'Hello')).status).toBe(403);

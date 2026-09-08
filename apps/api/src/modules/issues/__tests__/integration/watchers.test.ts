@@ -4,6 +4,8 @@ import { and, eq } from 'drizzle-orm';
 import { authedApi, type Api } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
+import { createRole } from '#tests/helpers/roles';
+import { createAgent } from '#tests/helpers/agents';
 
 // Who follows an issue. A watcher receives the notifications the issue produces;
 // the list comes back with the issue (GET /issues/:issueId → `watchers`) and is
@@ -106,7 +108,7 @@ describe('issue watchers', () => {
 
     it('does not create a hidden watcher row for a mentioned AI agent', async () => {
       const { owner, columnId } = await setup();
-      const agent = await owner.api.projects({ projectKey: 'MKT' })['ai-agents'].post({
+      const agent = await createAgent(owner.api, 'MKT', {
         name: 'Watcher Bot',
         username: 'watcher-bot',
         kind: 'external',
@@ -239,7 +241,7 @@ describe('issue watchers', () => {
 
     it('rejects an AI agent even though its bot user is a project member', async () => {
       const { owner, columnId } = await setup();
-      const agent = await owner.api.projects({ projectKey: 'MKT' })['ai-agents'].post({
+      const agent = await createAgent(owner.api, 'MKT', {
         name: 'Watcher Bot',
         username: 'watcher-bot',
         kind: 'external',
@@ -258,7 +260,7 @@ describe('issue watchers', () => {
 
     it('rejects a member who cannot read work items', async () => {
       const { owner, columnId } = await setup();
-      const role = await owner.api.projects({ projectKey: 'MKT' }).roles.post({
+      const role = await createRole(owner.api, 'MKT', {
         name: 'No work items',
         permissions: {},
       });
@@ -276,7 +278,7 @@ describe('issue watchers', () => {
 
     it('keeps self-watch available to a reader but denies managing other people', async () => {
       const { owner, columnId } = await setup();
-      const role = await owner.api.projects({ projectKey: 'MKT' }).roles.post({
+      const role = await createRole(owner.api, 'MKT', {
         name: 'Reader',
         permissions: {
           work_items: { create: false, edit: false, read: true, delete: false },
@@ -339,7 +341,7 @@ describe('issue watchers', () => {
       const view = await owner.api.projects({ projectKey: 'MKT' }).get();
       const issue = await createIssue(owner.api, columnId);
       await member.api.issues({ issueId: issue.data!.id }).watch.post();
-      const blockedRole = await owner.api.projects({ projectKey: 'MKT' }).roles.post({
+      const blockedRole = await createRole(owner.api, 'MKT', {
         name: 'No issue access',
         permissions: {},
       });

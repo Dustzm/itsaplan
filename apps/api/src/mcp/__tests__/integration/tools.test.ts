@@ -5,6 +5,7 @@ import { dispatchTool } from '#mcp/dispatch';
 import { routeTools, type McpRouteTool } from '#mcp/generate';
 import { app, authedApi } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
+import { teamOf } from '#tests/helpers/agents';
 import { resetDb } from '#tests/helpers/db';
 
 function tool(name: string): McpRouteTool {
@@ -82,51 +83,65 @@ describe('MCP extension tools', () => {
     });
   });
 
-  it('lists only notifications from MCP-enabled projects', async () => {
-    const owner = await signUpTestUser();
-    const asOwner = authedApi(owner.cookie);
-    await asOwner.projects.post({ key: 'MKT', name: 'Marketing' });
-    const board = await asOwner.projects({ projectKey: 'MKT' }).get();
-    const member = await signUpTestUser();
-    const invite = await asOwner
-      .projects({ projectKey: 'MKT' })
-      .invites.post({ email: member.email, role: 'member' });
-    const asMember = authedApi(member.cookie);
-    await asMember.invites({ token: invite.data!.token }).accept.post();
-    await asOwner.projects({ projectKey: 'MKT' }).issues.post({
-      columnId: board.data!.columns[0].id,
-      title: 'Assigned task',
-      assigneeUserId: member.userId,
-    });
-    await asOwner.projects({ projectKey: 'MKT' }).settings.patch({ mcpEnabled: false });
-    const apiKey = await createApiKey(member.userId);
+  it.each([
+    [true, true, 1],
+    [true, false, 0],
+    [false, true, 0],
+  ] as const)(
+    'filters notifications with team enabled=%s and project enabled=%s',
+    async (enabled, projectEnabled, expectedCount) => {
+      const owner = await signUpTestUser();
+      const asOwner = authedApi(owner.cookie);
+      await asOwner.projects.post({ key: 'MKT', name: 'Marketing' });
+      const board = await asOwner.projects({ projectKey: 'MKT' }).get();
+      const member = await signUpTestUser();
+      const invite = await asOwner
+        .projects({ projectKey: 'MKT' })
+        .invites.post({ email: member.email, role: 'member' });
+      const asMember = authedApi(member.cookie);
+      await asMember.invites({ token: invite.data!.token }).accept.post();
+      await asOwner.projects({ projectKey: 'MKT' }).issues.post({
+        columnId: board.data!.columns[0].id,
+        title: 'Assigned task',
+        assigneeUserId: member.userId,
+      });
+      const teamId = await teamOf(asOwner, 'MKT');
+      const settings = await asOwner.teams({ teamId }).mcp.patch({
+        enabled,
+        projects: [{ projectId: board.data!.project.id, enabled: projectEnabled }],
+      });
+      expect(settings.status).toBe(200);
+      const apiKey = await createApiKey(member.userId);
 
-    expect((await asMember.notifications.get({ query: {} })).data!.items).toHaveLength(1);
-    const listed = await dispatchTool(
-      app,
-      tool('list_notifications'),
-      {},
-      { kind: 'api-key', apiKey },
-      { viaMcpEndpoint: true },
-    );
-    const unread = await dispatchTool(
-      app,
-      tool('get_unread_notification_count'),
-      {},
-      { kind: 'api-key', apiKey },
-      { viaMcpEndpoint: true },
-    );
-    const internal = await dispatchTool(
-      app,
-      tool('list_notifications'),
-      {},
-      { kind: 'api-key', apiKey },
-      { viaMcpEndpoint: false },
-    );
-    expect(JSON.parse(listed.text).items).toHaveLength(0);
-    expect(JSON.parse(unread.text)).toEqual({ unread: 0 });
-    expect(JSON.parse(internal.text).items).toHaveLength(1);
-  });
+      expect((await asMember.notifications.get({ query: {} })).data!.items).toHaveLength(1);
+      const listed = await dispatchTool(
+        app,
+        tool('list_notifications'),
+        {},
+        { kind: 'api-key', apiKey },
+        { viaMcpEndpoint: true },
+      );
+      const unread = await dispatchTool(
+        app,
+        tool('get_unread_notification_count'),
+        {},
+        { kind: 'api-key', apiKey },
+        { viaMcpEndpoint: true },
+      );
+      const internal = await dispatchTool(
+        app,
+        tool('list_notifications'),
+        {},
+        { kind: 'api-key', apiKey },
+        { viaMcpEndpoint: false },
+      );
+      expect(listed.isError).toBe(false);
+      expect(unread.isError).toBe(false);
+      expect(JSON.parse(listed.text).items).toHaveLength(expectedCount);
+      expect(JSON.parse(unread.text)).toEqual({ unread: expectedCount });
+      expect(JSON.parse(internal.text).items).toHaveLength(1);
+    },
+  );
 
   it('uploads a base64 document asset and reports invalid base64', async () => {
     const owner = await signUpTestUser();

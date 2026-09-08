@@ -4,6 +4,8 @@ import type { AgentSchedule, AgentScheduleInput, ProjectDetail } from '@/lib/api
 import { aiAgentsPath } from '@/utils/paths';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/common/page/EmptyState';
+import ListPager from '@/components/common/ListPager';
+import { usePaging } from '@/hooks/usePaging';
 import ListSkeleton from '@/components/common/skeleton/ListSkeleton';
 import {
   useAgentSchedules,
@@ -13,7 +15,7 @@ import {
   useRunAgentSchedule,
   useUpdateAgentSchedule,
 } from '@/services/agentSchedules.service';
-import { useAiAgentsQuery } from '@/services/aiAgents.service';
+import { useProjectAgents } from '@/hooks/useProjectAgents';
 import { useSettingsCan } from '../../context/settingsPermission';
 import SettingsConfirmDeleteDialog from '../crud/SettingsConfirmDeleteDialog';
 import { SettingsScheduleDialog } from './SettingsScheduleDialog';
@@ -33,9 +35,11 @@ export default function SettingsSchedules({
   const t = useTranslations('settings.schedules');
   const projectKey = project.project.key;
   const can = useSettingsCan();
-  const schedulesQuery = useAgentSchedules(projectKey);
-  const agentsQuery = useAiAgentsQuery(projectKey);
-  const schedules = schedulesQuery.data ?? [];
+  const paging = usePaging();
+  const schedulesQuery = useAgentSchedules(projectKey, paging.params);
+  const agentsQuery = useProjectAgents();
+  const schedules = schedulesQuery.data?.items ?? [];
+  const total = schedulesQuery.data?.total ?? 0;
   const agents = agentsQuery.data ?? [];
   const createSchedule = useCreateAgentSchedule(projectKey);
   const updateSchedule = useUpdateAgentSchedule(projectKey);
@@ -118,6 +122,7 @@ export default function SettingsSchedules({
             onEdit={setEditing}
             onDelete={setDeleting}
           />
+          <ListPager paging={paging} total={total} />
         </div>
       )}
 

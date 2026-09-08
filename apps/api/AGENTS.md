@@ -74,6 +74,19 @@ Rules and invariants for this package below; read the code for the walkthrough.
   `deleteIssue` still reads attachment rows first to purge their objects.
 - **Object-store deletes are best-effort** — log a failed `deleteObject`, do not fail
   the request.
+- **A list route either pages or answers with the whole list, never both.** A paged
+  route takes `...pageQueryFields` (`page`/`pageSize`, 25 by default), answers with
+  `pageResponse(...)` and wraps its service in `paginate` (`shared/pagination.ts`); its
+  service takes a required `{ limit, offset }` and returns `{ items, total }`, counted
+  beside the window so a page past the end still reports how many there are. A list a
+  picker needs entire gets an `/options` route of its own returning a plain array
+  (`/teams/:teamId/agent-skills/options`), and a whole-list read only the server needs
+  is a service function of its own (`listAllAgentSchedules`). A query flag that
+  switches one route between the two makes every caller check which it got.
+- **A feed pages by cursor, not by offset**: `limit` + `cursor`/`before` →
+  `{ items, nextCursor }`. Rows arrive at its head while a reader is paging, which
+  makes an offset skip or repeat them. Everything else uses `page`/`pageSize`, whether
+  the screen shows numbered pages or a "show more" button.
 
 ## Auth and access
 
@@ -92,15 +105,74 @@ Enforced declaratively through macros, never imperative calls in handlers.
 - **Entity-by-id routes** (`/issues/:issueId`, `/views/:viewId`, …): define a local
   macro via `entityGuard(resource, notFound, resolveProjectId)` and set it in route
   options (e.g. `workItem: "edit"`). `GET /issues/:issueId` instead asserts
-  `assertPermission` on the fetched row.
+  `assertPermission` on the fetched row, and spreads `requiresPermission([...])` into its
+  `detail` so the MCP tool table still reports what it requires.
+- Every guard publishes the pair it asserts as `x-permission` on the route's OpenAPI
+  detail, which is where `mcp/generate.ts` reads it — Elysia deletes a macro's own key
+  from the route once it expands the macro, so there is nothing else to read it from.
 - Guards/macros wrap the `shared/access.ts` primitives. Handlers that still need
   `user` (project create, invite accept/reject, self-removal) call `requireUser(user)`.
-- **Members join through invites or a provisioned group**, never a direct add from
-  `members/`. One pending invite per (project, email) — partial unique index → 409.
-  `members/` removes only (last owner protected). `project_member.source` says which path
-  a row came from: `modules/scim/reconcile.ts` only ever writes, re-roles or removes its own
-  `'scim'` rows, and `members/` refuses to edit or remove one (409) because the next sync
-  would undo the change.
+- **A member of the team joins a project directly** (`POST /projects/:key/members`,
+  from the candidate list); anyone else joins through an invite, which puts them in
+  the team as well. A team invite (`/teams/:teamId/invites`) names no project. One
+  pending invite per (team, email) and per (project, email) — partial unique indexes →
+  409, and so is an address already in the team or in the project: accepting such an
+  invite would rewrite the membership it already holds, demoting an owner past the
+  last-owner check. `members/` removes (last owner protected).
+- The member list of a project is governed by its role matrix **or** by the team that
+  owns it: `memberAdmin: ["members_manage", "<action>"]` passes an owner or manager of
+  the team without a `project_member` row of their own, and every member route uses it
+  — list, add, assign a role, describe, remove. The two that address one member by
+  `:userId` use `memberSelfOrAdmin` instead: that member acts on their own row —
+  leaving the project, saying what they do in it — with no member permission at all.
+  The one standing the member permission does not carry is `owner`: an owner bypasses
+  the matrix, so adding one, promoting to one and *inviting* one all go through the
+  same rule — an owner of the project, or an owner or manager of the team that owns it
+  (`assertProjectAdmin`, and `mayGrantInviteRanks` for the invite). The team rank is
+  stricter still: only a team owner grants, takes or invites `owner` and `manager`
+  there. An invite is checked against its sender twice, once when it is made and again
+  when it is accepted: the sender can be demoted or deleted while the link is out, and
+  a link must not outlive the standing that issued it (409 on accept).
+- `project_member.source` says which path a row came from: `modules/scim/reconcile.ts`
+  only ever writes, re-roles or removes its own `'scim'` rows, and `members/` refuses to
+  edit or remove one (409) because the next sync would undo the change. A project
+  membership it grants comes with a `team_member` row in the owning team, added as a
+  plain member — the same order an accepted invite follows. `team_member.source` marks
+  that row the same way, and it is removed again once the sync holds no project
+  membership of that team; a row someone else created, or one whose rank was raised
+  afterwards, stays. `teams/` refuses to remove or leave such a row for the same reason
+  `members/` refuses its project one: the rank is the team's to set, the membership
+  itself is the identity provider's.
+
+## Team-owned agents
+
+Agents, the skill library, the configured tools and the integration credentials belong
+to the team; the routes are under `:teamId` and use the `teamPermission` guard. What
+stays under `:projectKey` is what happens in one project: an agent's chat, its runs and
+its schedules. `packages/db/AGENTS.md` has the schema side.
+
+Two decisions a reader would otherwise propose again:
+
+- **The team is the boundary.** There is no instance-level agent and no non-human-identity
+  flag on the user. An agent is reachable through its team or not at all.
+- **The `ai_agents` permissions are administrative.** A role granting `create` or `edit`
+  can make an agent, attach it to the projects the caller sees, and read its key — so
+  granting either is granting everything an agent of those projects can reach.
+- **An agent's role is its `project_member` row**, per project, set from the project's
+  member list like a person's. Attaching an agent joins it on the team's default role;
+  `members/` refuses to make it an owner, since an owner bypasses the matrix.
+
+Over MCP the team is resolved from the API key rather than asked for (`mcp/server.ts`):
+an agent's key acts in its own team, a person with one team in theirs, and a person in
+several passes `teamId` after reading `list_teams`.
+
+MCP reach is the team's too. `team.mcp_enabled` opens the team to MCP clients, and
+`project.mcp_enabled` says which of its projects that reach covers; both are written
+from `PATCH /teams/:teamId/mcp`, never from the project. The project guards check both
+through `assertMcpEnabled`, which reads them off the resolved project row — `ProjectRow`
+carries `teamMcpEnabled` from the join it already makes. The team guards check the team
+switch through `assertTeamMcpAllowed`, which is what covers the resources no project
+flag reaches: the agents, the skills, the tools, the roles and the credentials.
 
 ## SCIM
 
@@ -159,7 +231,8 @@ nosniff`, forced download outside a strict media allowlist, locked-down CSP.
 and real better-auth sessions — nothing is mocked. Import `app` via the helpers (from
 `src/app.ts`), never `src/index.ts` (it binds the port).
 
-**Setup.** Point tests at a dedicated `*_test` database, never dev/prod:
+**Setup.** `bun run setup` at the repo root creates the `*_test` database next to the dev
+one, writes `.env.test`, and migrates it. To do it by hand instead:
 
 ```bash
 cp .env.test.example .env.test        # repo root; DATABASE_URL must name a *_test database

@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import SettingsCard from '@/components/common/page/SettingsCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MCP_CLIENTS, MCP_URL } from '../utils/clients';
-import McpCodeBlock from './McpCodeBlock';
+import CodeBlock from '@/components/common/CodeBlock';
 
 // The literal the reader swaps for their own key. Passed as a value rather than
 // written into the messages: angle brackets in a message are parsed as rich-text tags.
@@ -35,7 +35,7 @@ export default function McpConnectionGuide() {
 
       <div className="space-y-2">
         <span className="text-xs font-medium text-muted-foreground">{t('endpoint')}</span>
-        <McpCodeBlock code={MCP_URL} />
+        <CodeBlock code={MCP_URL} />
       </div>
 
       <Tabs defaultValue={MCP_CLIENTS[0].label} className="gap-3">
@@ -62,7 +62,7 @@ export default function McpConnectionGuide() {
                 {c.noteKey && t(`notes.${c.noteKey}`, { apiKey: API_KEY_PLACEHOLDER })}
               </p>
             )}
-            <McpCodeBlock code={c.code} />
+            <CodeBlock code={c.code} />
           </TabsContent>
         ))}
       </Tabs>

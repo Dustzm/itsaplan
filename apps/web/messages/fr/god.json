@@ -1,17 +1,4 @@
 {
-  "pager": {
-    "perPage": "Par page",
-    "rowsPerPage": "Lignes par page",
-    "range": "{first}-{last} sur {total}",
-    "previous": "Page précédente",
-    "next": "Page suivante"
-  },
-  "access": {
-    "owner": "Un propriétaire a un accès total : la matrice des rôles n'est pas consultée.",
-    "role": "Déduit du rôle « {role} ».",
-    "default": "Aucun rôle attribué : les permissions de membre par défaut s'appliquent.",
-    "joined": "arrivé {date}"
-  },
   "providers": {
     "credential": "Mot de passe",
     "google": "Google",
@@ -113,8 +100,7 @@
       "views": "Vues",
       "agents": "Agents IA",
       "skills": "Compétences",
-      "tools": "Outils",
-      "integrations": "Intégrations"
+      "tools": "Outils"
     },
     "members": "Membres",
     "noMembersTitle": "Aucun membre",
@@ -203,8 +189,8 @@
     "timeout": "Délai d'attente (s)",
     "optional": "Facultatif",
     "apiKey": "Clé d'API",
-    "projectNotifications": "Notifications des projets",
-    "projectNotificationsHint": "Permettre aux projets d'envoyer leurs notifications via ce fournisseur au lieu d'en configurer un. Chaque projet choisit tout de même de l'utiliser ou non.",
+    "teamNotifications": "Notifications des équipes",
+    "teamNotificationsHint": "Permet aux équipes d'envoyer leurs notifications via ce fournisseur plutôt que d'en configurer un. Chaque équipe choisit de l'utiliser ou non.",
     "test": "Envoyer un e-mail de test",
     "testing": "Envoi…",
     "testHint": "Envoyer un vrai message avec les paramètres actuels, sans les enregistrer.",

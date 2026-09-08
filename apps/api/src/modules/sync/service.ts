@@ -1,4 +1,4 @@
-import { db, projectMember, projectRole, revision } from '@repo/db';
+import { db, projectMember, teamRole, revision } from '@repo/db';
 import { and, eq, inArray } from 'drizzle-orm';
 import { toMemberContext, type MemberRole } from '#modules/members/service';
 import { hasPermission, type PermissionResource } from '#shared/permissions';
@@ -51,11 +51,11 @@ export async function readRevs(
       scope: revision.scope,
       rev: revision.rev,
       role: projectMember.role,
-      permissions: projectRole.permissions,
+      permissions: teamRole.permissions,
     })
     .from(revision)
     .innerJoin(projectMember, eq(projectMember.projectId, revision.projectId))
-    .leftJoin(projectRole, eq(projectRole.id, projectMember.roleId))
+    .leftJoin(teamRole, eq(teamRole.id, projectMember.roleId))
     .where(
       and(
         inArray(

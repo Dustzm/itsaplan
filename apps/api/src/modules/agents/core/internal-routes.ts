@@ -4,7 +4,9 @@ import { deleteThreadsWhere } from './runtime/memory';
 import { runThreadId } from './runtime/thread-ids';
 import { framePrompt, runModePreamble, peopleContext } from './prompt/framing';
 import { recordAgentRunFinished, recordAgentRunStarted } from './run-activity';
-import { agentRunConfig } from './run-queue';
+import { agentRunConfig, countRunsAhead } from './run-queue';
+import { getProjectTeamId } from '#modules/projects/service';
+import { getLimits } from '#shared/limits';
 
 const runBody = t.Object({
   id: t.Number(),
@@ -44,6 +46,14 @@ export const internalAgentRunRoutes = new Elysia({
         set.status = 401;
         return { error: 'Unauthorized' };
       }
+      const teamId = await getProjectTeamId(body.projectId);
+      const { maxConcurrentRuns, maxRunSeconds } = await getLimits({ teamId });
+      // Turned back before anything is recorded, so a run that waits for a free slot
+      // leaves no trace on the issue and keeps the attempts it has.
+      if (maxConcurrentRuns > 0 && (await countRunsAhead(teamId, body.id)) >= maxConcurrentRuns) {
+        set.status = 503;
+        return { error: 'The team is already running as many agents as it may at once' };
+      }
       // The worker writes the run's own status; the issue's timeline entries are
       // written here, where the agent's work actually starts and ends. A failure the
       // worker will retry is not the end of the run, so only the last attempt logs one.
@@ -55,6 +65,7 @@ export const internalAgentRunRoutes = new Elysia({
           issueId: body.issueId,
           scheduleId: body.scheduleId,
           contextPreamble: runModePreamble(body.trigger) + peopleContext(body),
+          ...(maxRunSeconds > 0 ? { abortSignal: AbortSignal.timeout(maxRunSeconds * 1000) } : {}),
         });
         await recordAgentRunFinished(body, 'success');
         // The worker owns the run row, so the counts go back with the answer for it to

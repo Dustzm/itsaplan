@@ -12,15 +12,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useSetMemberDescription } from '@/services/members.service';
 
 // The "Edit" action for a member's project description: a button that opens a
-// centered dialog with a textarea. A member edits their own; an owner edits
-// anyone's (the API enforces it). Rendered in the member row's actions.
+// centered dialog with a textarea. A member edits their own; editing anyone else's
+// needs the member permission (the API enforces it). Rendered in the member row's
+// actions and in the team's project panel.
 export default function MemberDescriptionDialog({
   projectKey,
   member,
   self,
 }: {
   projectKey: string;
-  member: MemberRow;
+  member: Pick<MemberRow, 'userId' | 'name' | 'email' | 'image' | 'description'>;
   self: boolean;
 }) {
   const t = useTranslations('members');

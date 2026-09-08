@@ -7,7 +7,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LocaleToggle } from '@/components/locale-toggle';
-import GodPageSkeleton from '@/components/common/skeleton/GodPageSkeleton';
+import SectionPageSkeleton from '@/components/common/skeleton/SectionPageSkeleton';
 import UserMenu from '@/components/layout/UserMenu';
 import GodSidebar from '@/components/layout/GodSidebar';
 
@@ -56,7 +56,7 @@ export default function GodShell({
               {t('godModeOwnerOnly')}
             </div>
           )}
-          {!isGod && !sessionSettled && <GodPageSkeleton />}
+          {!isGod && !sessionSettled && <SectionPageSkeleton />}
         </div>
       </SidebarInset>
     </SidebarProvider>

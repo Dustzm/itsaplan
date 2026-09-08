@@ -65,7 +65,7 @@ export function SettingsActionDialog({
     <Modal
       title={t(mode === 'edit' ? 'dialogEdit' : 'dialogNew')}
       description={t('dialogHint')}
-      projectKey={projectKey}
+      scope={projectKey}
       onClose={onClose}
       wide
     >

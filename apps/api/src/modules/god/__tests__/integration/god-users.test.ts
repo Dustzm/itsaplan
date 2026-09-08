@@ -8,7 +8,7 @@ import { addUser, createAgentUser, joinProject, setup } from '../helpers';
 // tables and every project's membership, which no project-scoped route may do, so the
 // whole plugin sits behind the god guard.
 
-const ALL = { kind: 'all' as const, limit: 50, offset: 0 };
+const ALL = { kind: 'all' as const, page: 1, pageSize: 50 };
 
 async function withoutDeadlock<T>(operation: Promise<T>): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -71,10 +71,10 @@ describe('god users', () => {
       const agentUserId = await createAgentUser(god, 'MKT');
 
       const humans = await god.api.god.users.get({
-        query: { kind: 'human', limit: 50, offset: 0 },
+        query: { kind: 'human', page: 1, pageSize: 50 },
       });
       const agents = await god.api.god.users.get({
-        query: { kind: 'agent', limit: 50, offset: 0 },
+        query: { kind: 'agent', page: 1, pageSize: 50 },
       });
       const all = await god.api.god.users.get({ query: ALL });
 
@@ -117,13 +117,13 @@ describe('god users', () => {
       expect(noMatch.data?.total).toBe(0);
     });
 
-    it('pages with limit and offset while the total stays the full match count', async () => {
+    it('pages while the total stays the full match count', async () => {
       const { god } = await setup();
       await addUser();
       await addUser();
 
-      const first = await god.api.god.users.get({ query: { ...ALL, limit: 2, offset: 0 } });
-      const second = await god.api.god.users.get({ query: { ...ALL, limit: 2, offset: 2 } });
+      const first = await god.api.god.users.get({ query: { ...ALL, page: 1, pageSize: 2 } });
+      const second = await god.api.god.users.get({ query: { ...ALL, page: 2, pageSize: 2 } });
 
       expect(first.data?.items).toHaveLength(2);
       expect(second.data?.items).toHaveLength(1);
@@ -134,11 +134,11 @@ describe('god users', () => {
       expect(new Set(paged).size).toBe(3);
     });
 
-    it('rejects a limit outside the allowed range', async () => {
+    it('rejects a page size outside the allowed range', async () => {
       const { god } = await setup();
 
-      expect((await god.api.god.users.get({ query: { ...ALL, limit: 0 } })).status).toBe(400);
-      expect((await god.api.god.users.get({ query: { ...ALL, limit: 500 } })).status).toBe(400);
+      expect((await god.api.god.users.get({ query: { ...ALL, pageSize: 0 } })).status).toBe(400);
+      expect((await god.api.god.users.get({ query: { ...ALL, pageSize: 500 } })).status).toBe(400);
     });
   });
 
@@ -184,7 +184,7 @@ describe('god users', () => {
       });
       // The default Member role: full work items, no member management.
       expect(res.data?.projects[0].permissions.work_items.create).toBe(true);
-      expect(res.data?.projects[0].permissions.members_manage.read).toBe(false);
+      expect(res.data?.projects[0].permissions.members_manage.create).toBe(false);
     });
 
     it('counts every owner of a shared project', async () => {

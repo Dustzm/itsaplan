@@ -4,6 +4,7 @@ import { app } from '../../../../app';
 import { authedApi, type Api } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
+import { createRole, listProjectRoles } from '#tests/helpers/roles';
 
 // The inbound repository webhook: a verified pull request delivery moves the issues
 // its magic words name, through the same path a user's move takes (activity entries,
@@ -769,14 +770,14 @@ describe('Repository webhook', () => {
   it('hides the secret from a member who may read but not edit integrations', async () => {
     const { asOwner } = await setupProject();
     // A custom role with integrations read only, assigned to an invited member.
-    const catalog = await asOwner.projects({ projectKey: 'MKT' }).roles.get();
+    const catalog = await listProjectRoles(asOwner, 'MKT');
     const emptyMatrix = Object.fromEntries(
       Object.keys(catalog.data![0].permissions).map((r) => [
         r,
         { create: false, edit: false, read: false, delete: false },
       ]),
     );
-    const role = await asOwner.projects({ projectKey: 'MKT' }).roles.post({
+    const role = await createRole(asOwner, 'MKT', {
       name: 'Integrations viewer',
       permissions: {
         ...emptyMatrix,

@@ -44,7 +44,7 @@ export default function InviteStep({ token, invite }: { token: string; invite: I
 
   const sessionEmail = session.user.email;
   if (sessionEmail.toLowerCase() === invite.email.toLowerCase()) {
-    return <InviteActions token={token} />;
+    return <InviteActions token={token} projectKey={invite.projectKey} />;
   }
 
   return (

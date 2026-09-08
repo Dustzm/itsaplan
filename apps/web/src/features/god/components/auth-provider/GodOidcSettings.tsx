@@ -56,7 +56,6 @@ export default function GodOidcSettings({ form }: { form: GodOidcForm }) {
               value={form.clientSecret}
               onChange={form.setClientSecret}
               hasStored={form.settings.hasClientSecret}
-              editable
             />
           </div>
           <div className="space-y-1.5">

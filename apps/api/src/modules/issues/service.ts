@@ -34,6 +34,7 @@ import {
 import type { IssueQuery } from '#modules/agents/core/issue-query';
 import { iso, num, numOrNull, HttpError } from '#shared/lib';
 import type { ProjectRow } from '#modules/projects/service';
+import { assertProjectFeature } from '#shared/access';
 import {
   getCustomFieldById,
   type CustomFieldRow,
@@ -728,6 +729,7 @@ async function assertInitiative(
   initiativeId: number | null | undefined,
 ): Promise<void> {
   if (initiativeId == null) return;
+  await assertProjectFeature(projectId, 'initiatives');
   if ((await getInitiativeProjectId(initiativeId)) !== projectId)
     throw new HttpError(400, 'Initiative must belong to this project');
 }
@@ -743,6 +745,7 @@ async function assertCycle(
   currentCycleId: number | null = null,
 ): Promise<void> {
   if (cycleId == null || cycleId === currentCycleId) return;
+  await assertProjectFeature(projectId, 'cycles');
   const ref = await getCycleRef(cycleId);
   if (!ref || ref.projectId !== projectId)
     throw new HttpError(400, 'Cycle must belong to this project');
@@ -786,6 +789,7 @@ async function assertParent(
   parentId: number | null | undefined,
 ): Promise<void> {
   if (parentId == null) return;
+  await assertProjectFeature(projectId, 'subtasks');
   if (parentId === issueId) throw new HttpError(400, 'An issue cannot be its own parent');
   const rows = await db
     .select({ projectId: issue.projectId, parentId: issue.parentId })
@@ -822,6 +826,13 @@ async function assertIssueLabels(projectId: number, labelIds?: number[]): Promis
   if (rows.length !== ids.length) throw new HttpError(400, 'Labels must belong to this project');
 }
 
+// ISO 'YYYY-MM-DD' strings order correctly as plain strings. One date alone, or
+// the two equal, is fine.
+function assertDateOrder(startDate?: string | null, dueDate?: string | null) {
+  if (startDate && dueDate && dueDate < startDate)
+    throw new HttpError(400, 'Due date must not precede the start date');
+}
+
 // Atomic per-project sequence number (the "-42" in "MKT-42"): the UPDATE takes a
 // row lock on project, so concurrent createIssue calls for the same project never
 // hand out the same number.
@@ -837,6 +848,7 @@ export async function createIssue(
   await assertWipLimit(input.columnId);
   await assertIssueType(project.id, input.typeId);
   await assertParent(project.id, null, input.parentId);
+  assertDateOrder(input.startDate, input.dueDate);
   // Also checked by setIssueLabels below, but here it fails before the issue exists.
   await assertIssueLabels(project.id, input.labelIds);
   // An issue created in a column enters it the same way a moved one does, so the
@@ -1001,6 +1013,12 @@ export async function updateIssue(
   const before = await loadSnapshot(id);
   if (!before) return null;
 
+  // Each date is checked against the effective other one: a patch sets one date
+  // and leaves the stored value of the other in force.
+  assertDateOrder(
+    patch.startDate !== undefined ? patch.startDate : before.startDate,
+    patch.dueDate !== undefined ? patch.dueDate : before.dueDate,
+  );
   await assertAssignments(before.projectId, patch);
   await assertInitiative(before.projectId, patch.initiativeId);
   await assertCycle(before.projectId, patch.cycleId, before.cycleId);
@@ -1083,10 +1101,11 @@ export async function updateIssue(
 async function enqueueDelegateRun(after: IssueRow, actor?: ActivityActor): Promise<void> {
   const delegate = after.delegateUserId;
   if (!delegate || delegate === actorId(actor)) return;
-  const agent = await getAssignTriggerAgent(delegate, actorId(actor));
+  const agent = await getAssignTriggerAgent(after.projectId, delegate, actorId(actor));
   if (!agent) return;
   await enqueueAgentRun({
     agentId: agent.id,
+    projectId: after.projectId,
     issueId: after.id,
     sourceActivityId: null,
     prompt: `Work item ${after.identifier}: "${after.title}" has been delegated to you. Review it and take the appropriate next step.`,
@@ -1456,18 +1475,20 @@ async function assertFieldMember(
 // queue a run so it can act on the issue. Skipped when the agent set itself. The run
 // is executed later, so the write is never blocked on it.
 async function enqueueFieldRun(
+  projectId: number,
   issueId: number,
   field: CustomFieldRow,
   userId: string,
   actorUserId: string | null | undefined,
 ): Promise<void> {
   if (userId === actorUserId) return;
-  const agent = await getFieldTriggerAgent(userId, field.id, actorUserId ?? null);
+  const agent = await getFieldTriggerAgent(projectId, userId, field.id, actorUserId ?? null);
   if (!agent) return;
   const row = await getIssue(issueId);
   if (!row) return;
   await enqueueAgentRun({
     agentId: agent.id,
+    projectId,
     issueId,
     sourceActivityId: null,
     trigger: 'field',
@@ -1653,7 +1674,7 @@ export async function setIssueFieldValue(
   );
 
   if (memberUserId && memberUserId !== previousMemberUserId) {
-    await enqueueFieldRun(issueId, field, memberUserId, actorUserId);
+    await enqueueFieldRun(projectId, issueId, field, memberUserId, actorUserId);
     await notifyFieldMember(projectId, issueId, memberUserId, entry?.id ?? null, actorUserId);
   }
 

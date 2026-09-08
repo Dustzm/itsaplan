@@ -28,7 +28,7 @@ export default function CycleFormDialog({
     return (
       <Modal
         title={cycle ? t('form.editTitle') : t('form.newTitle')}
-        projectKey={projectKey}
+        scope={projectKey}
         onClose={onClose}
       >
         <p className="text-sm text-muted-foreground">{tCommon('loading')}</p>

@@ -14,7 +14,7 @@ import {
 } from '../chat-history';
 import { appendTextPart } from '../chat-parts';
 import { intEnv } from '../core/helpers/env';
-import { attachmentPreamble, chartPreamble, projectPreamble } from '../core/prompt/framing';
+import { attachmentPreamble, chartPreamble, projectsPreamble } from '../core/prompt/framing';
 import { peoplePreamble, type Person } from '../core/prompt/run-context';
 import type { ChatMessagePage, ChatPart, ChatThreadPage } from '../model';
 import { newChatThreadId } from '../core/runtime/thread-ids';
@@ -536,17 +536,14 @@ async function readHistory(
   return rows.reverse();
 }
 
-// What the agent is told before the task: the project, that a person is waiting in a
-// chat, who that person is, and last the operator's own instructions, which therefore
-// win over the generic parts.
+// What the agent is told before the task: the projects it works in, that a person is
+// waiting in a chat, who that person is, and last the operator's own instructions,
+// which therefore win over the generic parts. A chat is held with the agent rather
+// than inside a project, so every project it reaches is named.
 function buildSystemPrompt(agent: RunnerAgent, requester: Person): string {
   const instructions = agent.instructions?.trim();
   return (
-    projectPreamble({
-      key: agent.projectKey,
-      name: agent.projectName,
-      description: agent.projectDescription,
-    }) +
+    projectsPreamble(agent.projects) +
     chatModePreamble() +
     chartPreamble() +
     attachmentPreamble() +

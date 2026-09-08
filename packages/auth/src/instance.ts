@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { db, appSecret, projectInvite, getSetting, setSetting } from '@repo/db';
+import { db, appSecret, teamInvite, getSetting, setSetting } from '@repo/db';
 import { and, eq, sql } from 'drizzle-orm';
 import { encryptSecret, decryptSecret } from '@repo/crypto';
 import {
@@ -514,10 +514,10 @@ export async function verifyScimToken(candidate: string): Promise<boolean> {
 
 // ── Invites ───────────────────────────────────────────────────────────────────
 
-// True when this address has a pending project invite. That is what "invite only"
-// means on this instance: an owner invites someone to a project, and that invite is
-// what lets them register at all. Invites are created and revoked inside a project
-// (project_invite), so there is nothing instance-level to manage.
+// True when this address has a pending invite. That is what "invite only" means on
+// this instance: someone invites them to a team or to one of its projects, and that
+// invite is what lets them register at all. Invites are created and revoked inside a
+// team (team_invite), so there is nothing instance-level to manage.
 //
 // The invite itself is accepted after sign-up, on the /invite/:token screen — this
 // only decides whether the account may be created, and leaves the invite pending.
@@ -525,9 +525,9 @@ export async function hasPendingInvite(email: string): Promise<boolean> {
   const address = email.trim().toLowerCase();
   if (!address) return false;
   const rows = await db
-    .select({ id: projectInvite.id })
-    .from(projectInvite)
-    .where(and(eq(projectInvite.email, address), eq(projectInvite.status, 'pending')))
+    .select({ id: teamInvite.id })
+    .from(teamInvite)
+    .where(and(eq(teamInvite.email, address), eq(teamInvite.status, 'pending')))
     .limit(1);
   return rows.length > 0;
 }

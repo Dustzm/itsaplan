@@ -2,8 +2,16 @@ import { t } from 'elysia';
 
 import type { ThreadMatch } from './chat-history';
 
-// Shared by every route in the domain that addresses an agent by its id.
+// Shared by every route in the domain that addresses an agent by its id. An agent
+// belongs to a team, so that is where it is addressed.
 export const agentParams = t.Object({
+  teamId: t.Numeric(),
+  agentId: t.Numeric({ description: 'Agent id from list_ai_agents.' }),
+});
+
+// The same, for the routes that act on an agent inside one project of its team: a
+// chat, and a run of an internal agent.
+export const projectAgentParams = t.Object({
   projectKey: t.String(),
   agentId: t.Numeric({ description: 'Agent id from list_ai_agents.' }),
 });

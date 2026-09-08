@@ -28,8 +28,8 @@ through this module — never inline a query on `app_setting` / `app_secret` els
   provider, the two OAuth providers and the SCIM token, encrypted with `@repo/crypto`,
   each with a `redacted` mirror for the settings UI. Secrets never leave the server.
 
-"Invite only" means the address has a pending `project_invite` (`hasPendingInvite`).
-Invites are created and revoked inside a project, so there is no instance-level invite
+"Invite only" means the address has a pending `team_invite` (`hasPendingInvite`).
+Invites are created and revoked inside a team, so there is no instance-level invite
 table and god mode has no invite section — do not add one.
 
 `hooks.before` gates `/sign-up/email` (closed → 403, invite → no pending invite for

@@ -2,7 +2,6 @@ import {
   db,
   project,
   projectMember,
-  projectRole,
   projectColumn,
   issueType,
   labelGroup,
@@ -14,30 +13,24 @@ import {
   projectDocument,
   documentAsset,
   projectAction,
-  integrationCredential,
-  agentTool,
   webhook,
-  projectNotificationSetting,
   projectSetting,
 } from '@repo/db';
 import { and, eq, inArray, or } from 'drizzle-orm';
-import { iso } from '#shared/lib';
-import { defaultMemberPermissions } from '#shared/permissions';
-import { DEFAULT_COLUMNS, type ProjectRow } from './service';
-import { getProjectDefaults } from '#modules/settings/service';
-import { GIT_SETTING_KEY } from '#modules/git/service';
-import { listAgents, createAgent, type NewAgentInput } from '#modules/agents/core/service';
+import { HttpError } from '#shared/lib';
 import {
-  listSkills,
-  getSkillMarkdown,
-  createSkillFromFiles,
-  setAgentSkills,
-  listAgentSkills,
-} from '#modules/agents/skills/service';
-import { listAgentToolLinks, setAgentTools } from '#modules/agents/tools/service';
-import { listAgentSchedules, createAgentSchedule } from '#modules/agents/schedules/service';
+  DEFAULT_COLUMNS,
+  getProjectById,
+  mapProject,
+  targetTeam,
+  type ProjectRow,
+} from './service';
+import { GIT_SETTING_KEY } from '#modules/git/service';
+import { getProjectDefaults } from '#modules/settings/service';
+import { listAgents, updateAgent } from '#modules/agents/core/service';
+import { listAllAgentSchedules, createAgentSchedule } from '#modules/agents/schedules/service';
 import { nextCronRun } from '#modules/agents/schedules/cron';
-import { getObject } from '#shared/s3';
+import { generateSecret } from '#modules/webhooks/service';
 import {
   assertAttachmentStorageCapacity,
   assertAttachmentFileAllowed,
@@ -47,11 +40,13 @@ import {
 } from '#modules/attachments/storage';
 import { assertValidDocumentContentJson, replaceAssetReferences } from '#modules/documents/service';
 
-// Which parts of a source project the copy carries over. Each key mirrors a section
-// of the project settings menu. A key set false skips that entity. Some sections
-// depend on others (a view's filters reference states/types/labels/fields); those
-// dependencies are force-enabled in normalizeInclude so a partial selection can
-// never leave an id pointing at the source project.
+// Which parts of a source project the copy carries over. A key set false skips that
+// entity. Some sections depend on others (a view's filters reference
+// states/types/labels/fields); those dependencies are force-enabled in
+// normalizeInclude so a partial selection can never leave an id pointing at the
+// source project. Agents, their skills and their configured tools are not among them:
+// all three belong to the team, so a copy inside it reuses the same agents, and a copy
+// into another team carries none.
 export interface CopyProjectInclude {
   states: boolean;
   issueTypes: boolean;
@@ -62,12 +57,7 @@ export interface CopyProjectInclude {
   documents: boolean;
   actions: boolean;
   configuration: boolean;
-  roles: boolean;
-  notificationProviders: boolean;
   webhooks: boolean;
-  integrations: boolean;
-  tools: boolean;
-  skills: boolean;
   agents: boolean;
   schedules: boolean;
 }
@@ -82,12 +72,7 @@ export const COPY_INCLUDE_KEYS: (keyof CopyProjectInclude)[] = [
   'documents',
   'actions',
   'configuration',
-  'roles',
-  'notificationProviders',
   'webhooks',
-  'integrations',
-  'tools',
-  'skills',
   'agents',
   'schedules',
 ];
@@ -112,8 +97,7 @@ const DEFAULT_INCLUDE: CopyProjectInclude = {
 
 // Resolves the selection and force-enables the dependencies each entity needs to be
 // copied correctly. Views/actions remap the ids of states, types, labels and fields,
-// so those must be copied too; a tool cannot exist without its credential; a schedule
-// cannot exist without its agent.
+// so those must be copied too; a schedule cannot exist without its agent.
 function normalizeInclude(raw?: Partial<CopyProjectInclude>): CopyProjectInclude {
   const inc: CopyProjectInclude = raw ? { ...ALL_FALSE, ...raw } : { ...DEFAULT_INCLUDE };
   if (inc.customFields) inc.issueTypes = true;
@@ -128,7 +112,6 @@ function normalizeInclude(raw?: Partial<CopyProjectInclude>): CopyProjectInclude
     inc.issueTypes = true;
     inc.labels = true;
   }
-  if (inc.tools) inc.integrations = true;
   if (inc.schedules) inc.agents = true;
   return inc;
 }
@@ -231,51 +214,21 @@ function remapActionEffect(effect: unknown, maps: CopyIdMaps): unknown {
   return out;
 }
 
-function mapProjectRow(row: typeof project.$inferSelect): ProjectRow {
-  return {
-    id: row.id,
-    key: row.key,
-    name: row.name,
-    description: row.description,
-    mcpEnabled: row.mcpEnabled,
-    initiativesEnabled: row.initiativesEnabled,
-    dashboardsEnabled: row.dashboardsEnabled,
-    documentsEnabled: row.documentsEnabled,
-    notesEnabled: row.notesEnabled,
-    cyclesEnabled: row.cyclesEnabled,
-    subtasksEnabled: row.subtasksEnabled,
-    checklistsEnabled: row.checklistsEnabled,
-    issueStatsEnabled: row.issueStatsEnabled,
-    pointsEstimateEnabled: row.pointsEstimateEnabled,
-    timeEstimateEnabled: row.timeEstimateEnabled,
-    timeLoggingEnabled: row.timeLoggingEnabled,
-    createdAt: iso(row.createdAt),
-  };
-}
-
-// Reads a whole object from the store into a Buffer, for copying a skill's reference
-// files into the new project's own object prefix.
-async function readObjectBytes(key: string): Promise<{ bytes: Buffer; contentType: string }> {
-  const { body, contentType } = await getObject(key);
-  const bytes = Buffer.from(await new Response(body).arrayBuffer());
-  return { bytes, contentType };
-}
-
 // Creates a new project that copies the selected parts of the source project's
 // configuration, but none of its issues. The creator becomes the new project's owner.
 //
 // Pure-database entities (states, types, labels, custom fields, views, dashboards,
-// documents, actions, roles, settings, webhooks, integration credentials, configured tools) are
-// copied in one transaction, recording old id → new id so the ids that views/actions
-// and tools/agents reference are remapped to the copied entities. Entities with side
-// effects outside the database are copied after that transaction commits: skills copy
-// their object-store files, agents create their own bot user and API key, and both go
-// through the same service functions the UI uses.
+// documents, actions, settings, webhooks) are copied in one transaction, recording
+// old id → new id so the ids that views and actions reference are remapped to the
+// copied entities. A document's assets are cloned in the object store inside that
+// transaction and removed again if it rolls back. The team's agents are attached to
+// the new project after it commits, through the same service function the UI uses.
 export async function copyProject(
   sourceProjectId: number,
   input: { key: string; name: string; description?: string },
   ownerId: string,
   rawInclude?: Partial<CopyProjectInclude>,
+  teamId?: number,
 ): Promise<ProjectRow> {
   const inc = normalizeInclude(rawInclude);
 
@@ -287,23 +240,23 @@ export async function copyProject(
     field: new Map(),
     option: new Map(),
   };
-  const roleMap = new Map<number, number>();
-  const integrationMap = new Map<number, number>();
-  const toolMap = new Map<number, number>();
-  const skillMap = new Map<number, number>();
-  const agentMap = new Map<number, number>();
 
   const copiedDocumentAssetKeys: string[] = [];
 
+  const source = await getProjectById(sourceProjectId);
+  if (!source) throw new HttpError(404, 'Project not found');
+  const ownerTeam = await targetTeam(ownerId, teamId);
   // What a new project starts with, set instance-wide in god mode. Read before the
   // transaction opens so the settings lookup is not part of it.
   const defaults = await getProjectDefaults();
-
+  // Agents, integration credentials and roles belong to the team, so what references
+  // them survives the copy only when it stays in the same team.
+  const sameTeam = ownerTeam.id === source.teamId;
   const copyTransaction = db.transaction(async (tx) => {
     // The optional sections the source project shows and the estimate kinds it
     // carries are part of its configuration, so the copy starts with the same ones.
-    // mcpEnabled comes from the instance default instead, the same as it does for a
-    // project created from scratch.
+    // mcpEnabled is not carried: a new project enters its team's MCP reach on the
+    // instance default, the same way a created one does.
     const [sourceFeatures] = await tx
       .select({
         initiativesEnabled: project.initiativesEnabled,
@@ -324,6 +277,7 @@ export async function copyProject(
     const [row] = await tx
       .insert(project)
       .values({
+        teamId: ownerTeam.id,
         key: input.key,
         name: input.name,
         description: input.description ?? '',
@@ -331,47 +285,12 @@ export async function copyProject(
         ...sourceFeatures,
       })
       .returning();
-    const proj = mapProjectRow(row);
+    const proj = await mapProject({
+      ...row,
+      teamName: ownerTeam.name,
+      teamMcpEnabled: ownerTeam.mcpEnabled,
+    });
     await tx.insert(projectMember).values({ projectId: proj.id, userId: ownerId, role: 'owner' });
-
-    // Roles. When copied, every source role is carried over (including which one is
-    // the default), so agents/members keep their role assignments. Otherwise the
-    // project starts with just the standard default "Member" role, as a fresh project
-    // does.
-    if (inc.roles) {
-      const roleRows = await tx
-        .select()
-        .from(projectRole)
-        .where(eq(projectRole.projectId, sourceProjectId));
-      for (const r of roleRows) {
-        const [created] = await tx
-          .insert(projectRole)
-          .values({
-            projectId: proj.id,
-            name: r.name,
-            isDefault: r.isDefault,
-            permissions: r.permissions,
-          })
-          .returning({ id: projectRole.id });
-        roleMap.set(r.id, created.id);
-      }
-      const hasDefault = roleRows.some((r) => r.isDefault);
-      if (!hasDefault) {
-        await tx.insert(projectRole).values({
-          projectId: proj.id,
-          name: 'Member',
-          isDefault: true,
-          permissions: defaultMemberPermissions(),
-        });
-      }
-    } else {
-      await tx.insert(projectRole).values({
-        projectId: proj.id,
-        name: 'Member',
-        isDefault: true,
-        permissions: defaultMemberPermissions(),
-      });
-    }
 
     // States (columns). When copied, every source column is carried over so views,
     // actions and issues have somewhere to map to. When not copied, the project is
@@ -685,27 +604,10 @@ export async function copyProject(
       }
     }
 
-    // Notification provider credentials: the single per-project row, copied verbatim
-    // (its config is already encrypted at rest). Per-member event/channel preferences
-    // are personal and not copied.
-    if (inc.notificationProviders) {
-      const [ns] = await tx
-        .select()
-        .from(projectNotificationSetting)
-        .where(eq(projectNotificationSetting.projectId, sourceProjectId));
-      if (ns) {
-        await tx.insert(projectNotificationSetting).values({
-          projectId: proj.id,
-          ciphertext: ns.ciphertext,
-          iv: ns.iv,
-          authTag: ns.authTag,
-          redacted: ns.redacted,
-        });
-      }
-    }
-
-    // Webhook subscriptions, copied verbatim including the signing secret so an
-    // existing receiver keeps verifying. The failure counter resets.
+    // Webhook subscriptions: the URL and the event selection, with a signing secret of
+    // their own — the copy's owner must not receive the source's. The receiver cannot
+    // verify that signature until it is given the new secret, so the copy starts
+    // inactive and its owner enables it.
     if (inc.webhooks) {
       const webhookRows = await tx
         .select()
@@ -716,55 +618,10 @@ export async function copyProject(
         await tx.insert(webhook).values({
           projectId: proj.id,
           url: w.url,
-          secret: w.secret,
+          secret: generateSecret(),
           events: w.events,
-          isActive: w.isActive,
+          isActive: false,
         });
-      }
-    }
-
-    // Integration credentials (LLM and tool secrets), copied verbatim — the ciphertext
-    // is already encrypted and the project scope is the boundary. Their ids are mapped
-    // so configured tools and agents' model credentials point at the copies.
-    if (inc.integrations) {
-      const credRows = await tx
-        .select()
-        .from(integrationCredential)
-        .where(eq(integrationCredential.projectId, sourceProjectId))
-        .orderBy(integrationCredential.id);
-      for (const c of credRows) {
-        const [created] = await tx
-          .insert(integrationCredential)
-          .values({
-            projectId: proj.id,
-            integrationKey: c.integrationKey,
-            label: c.label,
-            ciphertext: c.ciphertext,
-            iv: c.iv,
-            authTag: c.authTag,
-            redacted: c.redacted,
-          })
-          .returning({ id: integrationCredential.id });
-        integrationMap.set(c.id, created.id);
-      }
-    }
-
-    // Configured tools: each binds a tool key to one integration credential, remapped
-    // to the copied credential. A tool whose credential was not copied is skipped.
-    if (inc.tools) {
-      const toolRows = await tx
-        .select()
-        .from(agentTool)
-        .where(eq(agentTool.projectId, sourceProjectId))
-        .orderBy(agentTool.id);
-      for (const tRow of toolRows) {
-        const newCredId = integrationMap.get(tRow.credentialId);
-        if (newCredId == null) continue;
-        const [created] = await tx
-          .insert(agentTool)
-          .values({ projectId: proj.id, toolKey: tRow.toolKey, credentialId: newCredId })
-          .returning({ id: agentTool.id });
-        toolMap.set(tRow.id, created.id);
       }
     }
 
@@ -778,87 +635,41 @@ export async function copyProject(
     throw error;
   }
 
-  // Skills: copy each skill's object-store files into the new project's own prefix,
-  // then create the row through the same service the UI uses.
-  if (inc.skills) {
-    for (const s of await listSkills(sourceProjectId)) {
-      const markdown = await getSkillMarkdown(s.id, sourceProjectId);
-      const refs = [];
-      for (const f of s.files) {
-        const { bytes, contentType } = await readObjectBytes(f.s3Key);
-        refs.push({ path: f.path, bytes, contentType });
-      }
-      const created = await createSkillFromFiles(newProject.id, {
-        name: s.name,
-        description: s.description,
-        source: s.source,
-        sourceUrl: s.sourceUrl,
-        markdown,
-        refs,
+  // Agents: the ones working in the source project, attached to the new one as well.
+  // The team owns them and one handle is unique in it, so a second copy of the same
+  // agent cannot exist. A copy into another team carries no agent: creating one there
+  // would mean a new bot user and a new API key for something the operator did not ask
+  // for, and its skills and configured tools would be missing anyway.
+  if (inc.agents && sameTeam) {
+    for (const a of await listAgents(source.teamId, sourceProjectId)) {
+      // The member fields the agent reacts to, remapped onto the copies.
+      const fieldTriggers = a.fieldTriggers.flatMap((trigger) => {
+        const fieldId = maps.field.get(trigger.fieldId);
+        return fieldId == null ? [] : [{ fieldId, delaySec: trigger.delaySec }];
       });
-      skillMap.set(s.id, created.id);
+      await updateAgent(
+        a.id,
+        ownerTeam.id,
+        {
+          projectIds: [...a.projects.map((p) => p.id), newProject.id],
+          fieldTriggers: [
+            ...a.fieldTriggers.map(({ fieldId, delaySec }) => ({ fieldId, delaySec })),
+            ...fieldTriggers,
+          ],
+        },
+        ownerId,
+      );
     }
   }
 
-  // Agents: each gets its own bot user and API key through createAgent, with its model
-  // credential and role remapped to the copies. An external agent's key is regenerated
-  // and cannot be recovered here — its operator resets it in the new project. Skill and
-  // tool links are re-created only for the skills/tools that were also copied.
-  if (inc.agents) {
-    for (const a of await listAgents(sourceProjectId)) {
-      const agentInput: NewAgentInput = {
-        name: a.name,
-        username: a.username,
-        kind: a.kind,
-        modelCredentialId:
-          a.modelCredentialId != null ? (integrationMap.get(a.modelCredentialId) ?? null) : null,
-        model: a.model,
-        instructions: a.instructions,
-        tools: a.tools,
-        temperature: a.temperature,
-        maxSteps: a.maxSteps,
-        memoryEnabled: a.memoryEnabled,
-        memoryLastMessages: a.memoryLastMessages,
-        triggerOnMention: a.triggerOnMention,
-        triggerOnAssign: a.triggerOnAssign,
-        fieldTriggers: a.fieldTriggers.flatMap((trigger) => {
-          const fieldId = maps.field.get(trigger.fieldId);
-          return fieldId == null ? [] : [{ fieldId, delaySec: trigger.delaySec }];
-        }),
-        delegationDelaySec: a.delegationDelaySec,
-        roleId: a.roleId != null ? (roleMap.get(a.roleId) ?? null) : null,
-        // An 'owner'-scoped agent keeps its scope, bound to whoever made the copy —
-        // the source owner need not be a member of the new project.
-        runnerScope: a.runnerScope,
-        ownerUserId: ownerId,
-      };
-      const { agent } = await createAgent(newProject.id, agentInput);
-      agentMap.set(a.id, agent.id);
-
-      if (inc.skills) {
-        const skillIds = (await listAgentSkills(a.id))
-          .map((s) => skillMap.get(s.id))
-          .filter((id): id is number => id != null);
-        if (skillIds.length > 0) await setAgentSkills(agent.id, newProject.id, skillIds);
-      }
-      if (inc.tools) {
-        const toolIds = (await listAgentToolLinks(a.id))
-          .map((tRow) => toolMap.get(tRow.id))
-          .filter((id): id is number => id != null);
-        if (toolIds.length > 0) await setAgentTools(agent.id, newProject.id, toolIds);
-      }
-    }
-  }
-
-  // Schedules: re-created for the copied agents. next_run_at is recomputed from the
-  // cron so the copy starts on its own cadence rather than inheriting a past due time.
-  if (inc.schedules) {
-    for (const s of await listAgentSchedules(sourceProjectId, ownerId)) {
-      const newAgentId = agentMap.get(s.agentId);
-      if (newAgentId == null) continue;
+  // Schedules: re-created against the same agents, which only work in the copy when it
+  // stayed in the team. next_run_at is recomputed from the cron so the copy starts on
+  // its own cadence rather than inheriting a past due time.
+  if (inc.schedules && sameTeam) {
+    for (const s of await listAllAgentSchedules(sourceProjectId, ownerId)) {
       await createAgentSchedule({
         projectId: newProject.id,
-        agentId: newAgentId,
+        agentId: s.agentId,
         actorUserId: ownerId,
         name: s.name,
         prompt: s.prompt,

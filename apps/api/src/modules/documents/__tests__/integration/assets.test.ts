@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import { api, authedApi } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
+import { createRole } from '#tests/helpers/roles';
 
 type Client = ReturnType<typeof authedApi>;
 
@@ -139,9 +140,10 @@ describe('document assets', () => {
       ).status,
     ).toBe(204);
 
-    const readerRole = await asOwner
-      .projects({ projectKey: 'MKT' })
-      .roles.post({ name: 'Reader', permissions: { documents: { read: true } } });
+    const readerRole = await createRole(asOwner, 'MKT', {
+      name: 'Reader',
+      permissions: { documents: { read: true } },
+    });
     const reader = await addMember(asOwner, readerRole.data!.id);
 
     expect((await documents(reader.client)({ documentId: page.id }).assets.get()).status).toBe(200);
@@ -161,7 +163,7 @@ describe('document assets', () => {
       ).status,
     ).toBe(403);
 
-    const editorRole = await asOwner.projects({ projectKey: 'MKT' }).roles.post({
+    const editorRole = await createRole(asOwner, 'MKT', {
       name: 'Docs editor',
       permissions: { documents: { read: true, edit: true } },
     });

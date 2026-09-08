@@ -1,16 +1,12 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
   type NewNoteBoardInput,
   type NoteBoard,
-  type NoteBoardSummary,
   type NoteBoardVisibility,
   type NoteCanvas,
 } from '@/lib/api';
 import { qk } from '@/services/queryKeys';
-
-// How many boards the switcher loads per page.
-export const NOTE_BOARDS_PAGE = 10;
 
 // Invalidate every switcher/search list (but not open boards' canvases): renaming,
 // creating, deleting, or changing a board's visibility all reorder or refilter the
@@ -20,19 +16,13 @@ function invalidateSearch(qc: ReturnType<typeof useQueryClient>, projectKey: str
   void qc.invalidateQueries({ queryKey: [...qk.noteBoardsForProject(projectKey), 'search'] });
 }
 
-// The board switcher list: name-filtered, paged, most-recently-updated first.
+// The board switcher list: every board the caller can see, most recently updated
+// first, narrowed by name on the server. The switcher is a select, so it holds them
+// all rather than a window.
 export function useNoteBoardSearch(projectKey: string | null, q: string) {
-  return useInfiniteQuery({
+  return useQuery({
     queryKey: qk.noteBoardsSearch(projectKey ?? '', q),
-    queryFn: ({ pageParam }) =>
-      api.listNoteBoards(projectKey!, {
-        q: q || undefined,
-        limit: NOTE_BOARDS_PAGE,
-        offset: pageParam,
-      }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.length < NOTE_BOARDS_PAGE ? undefined : allPages.reduce((n, p) => n + p.length, 0),
+    queryFn: () => api.listNoteBoards(projectKey!, { q: q || undefined }),
     enabled: projectKey != null,
   });
 }
@@ -133,10 +123,4 @@ export function useSaveNoteCanvas(projectKey: string | null) {
       qc.setQueryData<NoteBoard>(qk.noteBoard(projectKey, updated.id), updated);
     },
   });
-}
-
-// Flatten the switcher's paged result into a single board list, so a consumer can
-// read the boards without threading useInfiniteQuery's page shape.
-export function flattenBoardPages(pages: NoteBoardSummary[][] | undefined): NoteBoardSummary[] {
-  return pages?.flat() ?? [];
 }

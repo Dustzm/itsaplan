@@ -12,7 +12,7 @@ const MULTIPART_OPERATIONS = new Set([
   'POST /issues/{issueId}/attachments',
   'PUT /attachments/{publicId}',
   'POST /me/avatar',
-  'POST /projects/{projectKey}/agent-skills/{skillId}/references',
+  'POST /teams/{teamId}/agent-skills/{skillId}/references',
 ]);
 
 const PUBLIC_GET_PATHS = [

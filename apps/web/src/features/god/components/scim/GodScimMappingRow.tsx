@@ -2,7 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import type { InstanceProject } from '@/lib/api';
+import type { InstanceProjectOption } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -26,7 +26,7 @@ export default function GodScimMappingRow({
   onRemove,
 }: {
   mapping: ScimMappingDraft;
-  projects: InstanceProject[];
+  projects: InstanceProjectOption[];
   onChange: (patch: Partial<ScimMappingDraft>) => void;
   onRemove: () => void;
 }) {

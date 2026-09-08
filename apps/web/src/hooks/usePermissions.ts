@@ -26,5 +26,10 @@ export function usePermissions(source?: ProjectDetail | null) {
     [viewer, permissions],
   );
 
-  return { can, role: viewer?.role ?? null, isOwner: viewer?.role === 'owner' };
+  // Who governs the project's own settings: its owner, or an owner or manager of the
+  // team that runs it. Mirrors the projectAdmin guard on the API.
+  const isAdmin =
+    viewer?.role === 'owner' || viewer?.teamRole === 'owner' || viewer?.teamRole === 'manager';
+
+  return { can, role: viewer?.role ?? null, isOwner: viewer?.role === 'owner', isAdmin };
 }

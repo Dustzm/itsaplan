@@ -45,7 +45,6 @@ export default function GodGoogleSettings({ form }: { form: GodGoogleForm }) {
               value={form.clientSecret}
               onChange={form.setClientSecret}
               hasStored={form.settings.hasClientSecret}
-              editable
               placeholder="GOCSPX-…"
             />
           </div>

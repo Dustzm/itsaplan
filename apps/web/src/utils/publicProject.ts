@@ -25,7 +25,7 @@ export function toPublicProjectDetail(
     customFields: scaffold.customFields,
     // A public page creates nothing, so it needs no templates.
     issueTemplates: [],
-    viewer: { role: 'member' },
+    viewer: { role: 'member', teamRole: null },
     permissions: {} as Permissions,
     issues,
     // A share bundle carries no cycle list; a view grouped by cycle gets its lanes

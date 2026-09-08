@@ -51,7 +51,6 @@
         "toggle": "打开命令面板"
       },
       "project": {
-        "switch": "切换到项目 1–9",
         "new": "新建项目",
         "settings": "打开项目设置"
       },
@@ -63,6 +62,9 @@
       },
       "issue": {
         "new": "新建工作项"
+      },
+      "initiative": {
+        "new": "新建计划"
       },
       "view": {
         "kanban": "看板布局",
@@ -171,10 +173,22 @@
     "tableDeleteRow": "删除行",
     "tableAddColumn": "添加列",
     "tableDeleteColumn": "删除列",
-    "tableDelete": "删除表格"
+    "tableDelete": "删除表格",
+    "insertImage": "插入图片",
+    "insertNamed": "插入 {name}",
+    "noImages": "暂无已附加图片。请从附件面板上传，或直接拖入编辑器。",
+    "image": "图片"
   },
   "chart": {
     "download": "保存图表",
     "downloadFailed": "图表保存失败"
+  },
+  "agent": "代理",
+  "pager": {
+    "previous": "上一页",
+    "next": "下一页",
+    "page": "第 {number} 页",
+    "perPage": "每页",
+    "range": "第 {first}-{last} 项，共 {total} 项"
   }
 }

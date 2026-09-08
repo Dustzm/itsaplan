@@ -11,10 +11,10 @@ import type { NotificationType, NewNotificationRow } from './service';
 // issue event into notification_delivery outbox rows. Delivery is per member and per
 // their own preferences: for each inbox row (already one per recipient), the member's
 // notification-preferences decide whether it goes by email (to their account address)
-// and/or Telegram (to the chat of the Telegram account they linked). The project
-// supplies the provider credentials (SMTP/Resend, and optionally its own bot token —
-// Telegram otherwise goes through the instance bot). The message text is composed
-// here at enqueue time and stored on the row; the worker drains the outbox and the
+// and/or Telegram (to the chat of the Telegram account they linked). The team that
+// owns the project supplies the provider credentials (SMTP/Resend, and optionally its
+// own bot token — Telegram otherwise goes through the instance bot). The message text
+// is composed here at enqueue time and stored on the row; the worker drains the outbox and the
 // sender reads the credentials at send time.
 //
 // This is best-effort: enqueue never throws into the caller (a failure here must not
@@ -135,7 +135,7 @@ function telegramPayload(
 
 // Enqueues outbound delivery rows for the inbox notifications just created for one
 // issue event. All rows in `notifications` share the same issue and actor (both call
-// sites operate on a single issue). No-op when the project has no enabled provider or
+// sites operate on a single issue). No-op when the team has no enabled provider or
 // no member wants any of the event types present.
 export async function enqueueOutbound(
   notifications: NewNotificationRow[],
@@ -144,10 +144,16 @@ export async function enqueueOutbound(
   if (notifications.length === 0) return;
   const projectId = notifications[0].projectId;
 
-  const settings = await readRedactedSettings(projectId);
+  const [projectRow] = await db
+    .select({ key: project.key, name: project.name, teamId: project.teamId })
+    .from(project)
+    .where(eq(project.id, projectId));
+  if (!projectRow) return;
 
-  // The project's own provider when it configured one, otherwise the instance
-  // provider when the project asked for it and the instance shares it.
+  const settings = await readRedactedSettings(projectRow.teamId);
+
+  // The team's own provider when it configured one, otherwise the instance
+  // provider when the team asked for it and the instance shares it.
   const source = emailSource(settings);
   const emailEnabled =
     source === 'smtp'
@@ -157,7 +163,7 @@ export async function enqueueOutbound(
         : source === 'system'
           ? (await getProjectEmailConfig()) !== null
           : false;
-  // The project turns Telegram on; the bot that sends is either its own or, when it
+  // The team turns Telegram on; the bot that sends is either its own or, when it
   // set no token, the instance bot.
   const telegramEnabled =
     settings.telegram.enabled && (settings.telegram.hasBotToken || (await hasUsableInstanceBot()));
@@ -168,11 +174,7 @@ export async function enqueueOutbound(
     .select({ seq: issue.sequenceNumber, title: issue.title })
     .from(issue)
     .where(eq(issue.id, issueId));
-  const [projectRow] = await db
-    .select({ key: project.key, name: project.name })
-    .from(project)
-    .where(eq(project.id, projectId));
-  if (!issueRow || !projectRow) return;
+  if (!issueRow) return;
 
   const ref = issueRef(projectRow.key, issueRow.seq);
   const url = issueUrl(projectRow.key, issueRow.seq);

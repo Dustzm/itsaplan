@@ -1,17 +1,15 @@
 {
   "title": "MCP 服务器",
-  "description": "通过 Model Context Protocol 将 AI 代理连接到此项目。",
-  "access": "MCP 访问",
-  "enabled": "已启用",
+  "description": "通过 Model Context Protocol 将 AI 代理连接到本项目。代理能看到的范围由所用 API 密钥决定。",
   "disabled": "已禁用",
-  "ownerOnly": "只有项目所有者可以启用或停用 MCP 访问。",
-  "toggleAria": "切换 MCP 访问",
+  "offForTeam": "团队 {team} 的 MCP 已关闭。",
+  "offForProject": "团队 {team} 已开启 MCP，但本项目未开启。",
+  "openTeamSettings": "打开团队的 MCP 设置",
+  "askManager": "请团队所有者或管理者开启：",
   "keyHint": "在 <link>API 密钥</link>页面创建密钥，然后替换代码片段中的 <code>{apiKey}</code>。",
   "endpoint": "MCP 端点",
   "clientTabsAria": "客户端",
   "addToFile": "添加到 <code>{file}</code>",
-  "copyAria": "复制",
-  "copied": "已复制到剪贴板",
   "notes": {
     "claudeCode": "在终端中运行此命令。",
     "vscode": "需要 GitHub Copilot。",
@@ -44,9 +42,5 @@
       "authorize": "授权",
       "failed": "无法完成 OAuth 授权。"
     }
-  },
-  "toast": {
-    "enabled": "MCP 访问已启用",
-    "disabled": "MCP 访问已禁用"
   }
 }

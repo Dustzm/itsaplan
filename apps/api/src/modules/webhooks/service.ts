@@ -52,9 +52,9 @@ function mapWebhook(row: typeof webhook.$inferSelect): WebhookRow {
   };
 }
 
-// A signing secret for a new subscription. The client gets it back so it can verify
-// delivered payloads. The server generates it, and never derives it from user input.
-function generateSecret(): string {
+// A signing secret for a new subscription. The server generates it, and never derives
+// it from user input.
+export function generateSecret(): string {
   return `whsec_${randomBytes(24).toString('hex')}`;
 }
 

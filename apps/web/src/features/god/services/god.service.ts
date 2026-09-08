@@ -9,6 +9,7 @@ import {
   type InstanceOidcSettingsPatch,
   type InstanceTelegramSettingsPatch,
   type InstanceUserKind,
+  type PageParams,
   type ProjectDefaults,
   type StorageSettingsPatch,
 } from '@/lib/api';
@@ -202,11 +203,9 @@ export function useUpdateInstanceStorageSettings() {
   });
 }
 
-export interface InstanceUserFilters {
+export interface InstanceUserFilters extends PageParams {
   search: string;
   kind: InstanceUserKind;
-  limit: number;
-  offset: number;
 }
 
 // One page of the user directory. The filters are part of the key, and the previous
@@ -215,13 +214,7 @@ export interface InstanceUserFilters {
 export function useInstanceUsersQuery(filters: InstanceUserFilters) {
   return useQuery({
     queryKey: qk.instanceUsers(filters),
-    queryFn: () =>
-      api.listInstanceUsers({
-        search: filters.search || undefined,
-        kind: filters.kind,
-        limit: filters.limit,
-        offset: filters.offset,
-      }),
+    queryFn: () => api.listInstanceUsers({ ...filters, search: filters.search || undefined }),
     placeholderData: keepPreviousData,
   });
 }
@@ -250,10 +243,8 @@ export function useDeleteInstanceUser() {
   });
 }
 
-export interface InstanceProjectFilters {
+export interface InstanceProjectFilters extends PageParams {
   search: string;
-  limit: number;
-  offset: number;
 }
 
 // One page of the project directory. Like the user directory, the filters are part
@@ -261,13 +252,18 @@ export interface InstanceProjectFilters {
 export function useInstanceProjectsQuery(filters: InstanceProjectFilters) {
   return useQuery({
     queryKey: qk.instanceProjects(filters),
-    queryFn: () =>
-      api.listInstanceProjects({
-        search: filters.search || undefined,
-        limit: filters.limit,
-        offset: filters.offset,
-      }),
+    queryFn: () => api.listInstanceProjects({ ...filters, search: filters.search || undefined }),
     placeholderData: keepPreviousData,
+  });
+}
+
+// Every project on the instance, for the SCIM mapping picker. Changes rarely, so it
+// is cached for the session.
+export function useInstanceProjectOptionsQuery() {
+  return useQuery({
+    queryKey: qk.instanceProjectOptions,
+    queryFn: () => api.listInstanceProjectOptions(),
+    staleTime: Infinity,
   });
 }
 

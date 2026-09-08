@@ -4,10 +4,10 @@ import { emailSource, type NotificationConfig } from '#modules/notification-sett
 import type { DeliveryPayload } from './outbound';
 import { getInstanceBotConfig, isInstanceBotUsable } from '#modules/telegram/service';
 
-// Sends one composed notification over the requested channel using the project's
+// Sends one composed notification over the requested channel using the team's
 // decrypted config. Email transport lives in @repo/mailer (shared with the
 // authentication mail sent from @repo/auth); Telegram is only used here, so it stays
-// in this file. A project that set no bot token of its own sends through the instance
+// in this file. A team that set no bot token of its own sends through the instance
 // bot, the same one members link their Telegram accounts through. Adding a channel is
 // a new branch here plus a compose function in outbound.ts; nothing else changes. The
 // result tells the worker whether a failure is worth retrying (transient: network
@@ -25,8 +25,8 @@ export interface SendInput {
 
 async function sendNotificationEmail(input: SendInput): Promise<SendResult> {
   if (!input.recipient) return { ok: false, retryable: false, error: 'no recipient' };
-  // The project's own provider when it configured one, otherwise the instance
-  // provider (which carries its own From address). A project set to the instance
+  // The team's own provider when it configured one, otherwise the instance
+  // provider (which carries its own From address). A team set to the instance
   // provider stops sending when the administrator withdraws it.
   const source = emailSource(input.config);
   const config: EmailConfig | null =
@@ -53,7 +53,7 @@ async function sendTelegram(input: SendInput): Promise<SendResult> {
   if (!telegram.enabled) {
     return { ok: false, retryable: false, error: 'telegram not configured' };
   }
-  // The project's own bot when it set one, otherwise the instance bot the members
+  // The team's own bot when it set one, otherwise the instance bot the members
   // linked their accounts through.
   const instance = telegram.botToken ? null : await getInstanceBotConfig();
   const botToken =

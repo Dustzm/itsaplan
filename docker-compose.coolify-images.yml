@@ -111,13 +111,25 @@ services:
       - S3_SECRET_ACCESS_KEY=${SERVICE_PASSWORD_MINIO}
       - S3_REGION=${S3_REGION:-us-east-1}
       - S3_FORCE_PATH_STYLE=${S3_FORCE_PATH_STYLE:-}
-    # start_period covers the migrations the container applies before it listens.
+      # Hosts trusted even though they resolve privately. Also governs webhook URL
+      # validation and attachment import.
+      - SSRF_ALLOWED_HOSTS=${SSRF_ALLOWED_HOSTS:-}
+      # How long the pre-migration dumps are kept, and the switch that upgrades
+      # without one. BACKUP_DIR is not among them: the volume below pins it.
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-}
+      - SKIP_PRE_MIGRATION_BACKUP=${SKIP_PRE_MIGRATION_BACKUP:-}
+    # Holds the dump migrate.ts takes before it applies a release's migrations, and
+    # keeps it for BACKUP_RETENTION_DAYS (30) so a downgrade has something to restore.
+    volumes:
+      - db-backups:/backups
+    # start_period covers the backup and the migrations the container applies before
+    # it listens.
     healthcheck:
       test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/']
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 90s
+      start_period: 180s
 
   # Background worker for webhook delivery, agent schedules, and autonomous agent
   # runs. Shares the database with the api. No public ports, so nothing to probe.
@@ -140,6 +152,8 @@ services:
       TELEMETRY_DISABLED: ${TELEMETRY_DISABLED:-}
       DO_NOT_TRACK: ${DO_NOT_TRACK:-}
       TELEMETRY_DEBUG: ${TELEMETRY_DEBUG:-}
+      # The same list the api reads. This process delivers webhooks to those hosts.
+      SSRF_ALLOWED_HOSTS: ${SSRF_ALLOWED_HOSTS:-}
       # Optional tuning — defaults live in apps/worker/src/config.ts:
       # WEBHOOK_POLL_INTERVAL_MS, WEBHOOK_BATCH_SIZE, WEBHOOK_TIMEOUT_MS,
       # WEBHOOK_MAX_ATTEMPTS, WEBHOOK_DISABLE_THRESHOLD, WEBHOOK_LEASE_SECONDS,
@@ -197,3 +211,4 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  db-backups:

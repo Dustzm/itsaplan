@@ -2,6 +2,7 @@ import {
   db,
   issue,
   projectColumn,
+  projectMember,
   issueActivity,
   issueType,
   user,
@@ -444,15 +445,15 @@ export interface AgentRunFeedItem {
   createdAt: string;
 }
 
-// The project's agent runs, newest first, optionally narrowed to one status. Joins
-// agent_run through ai_agent (which carries the project scope and the agent name)
-// and issue when the run is issue-triggered.
+// The project's agent runs, newest first, optionally narrowed to one status. A run
+// carries the project it worked in; ai_agent is joined for the agent name and issue
+// when the run is issue-triggered.
 export async function listAgentRunFeed(
   projectId: number,
   opts: { status?: string | null; limit?: number } = {},
 ): Promise<AgentRunFeedItem[]> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
-  const conds = [eq(aiAgent.projectId, projectId)];
+  const conds = [eq(agentRun.projectId, projectId)];
   if (opts.status) conds.push(eq(agentRun.status, opts.status));
 
   const rows = await db
@@ -502,10 +503,9 @@ export async function getAgentRunStats(projectId: number, days: number): Promise
   const rows = await db
     .select({ status: agentRun.status, count: sql<number>`count(*)::int` })
     .from(agentRun)
-    .innerJoin(aiAgent, eq(aiAgent.id, agentRun.agentId))
     .where(
       and(
-        eq(aiAgent.projectId, projectId),
+        eq(agentRun.projectId, projectId),
         sql`${agentRun.createdAt} >= now() - make_interval(days => ${days})`,
       ),
     )
@@ -594,7 +594,10 @@ export async function getAgentWorkload(projectId: number): Promise<AgentWorkload
   const agents = await db
     .select({ id: aiAgent.id, userId: aiAgent.userId, name: aiAgent.username, kind: aiAgent.kind })
     .from(aiAgent)
-    .where(eq(aiAgent.projectId, projectId));
+    .innerJoin(
+      projectMember,
+      and(eq(projectMember.userId, aiAgent.userId), eq(projectMember.projectId, projectId)),
+    );
   if (agents.length === 0) return [];
 
   const delegatedRows = await db
@@ -613,8 +616,7 @@ export async function getAgentWorkload(projectId: number): Promise<AgentWorkload
       failed: sql<number>`(count(*) filter (where ${agentRun.status} = 'failed'))::int`,
     })
     .from(agentRun)
-    .innerJoin(aiAgent, eq(aiAgent.id, agentRun.agentId))
-    .where(eq(aiAgent.projectId, projectId))
+    .where(eq(agentRun.projectId, projectId))
     .groupBy(agentRun.agentId);
   const runsByAgent = new Map(runRows.map((r) => [r.agentId, r]));
 

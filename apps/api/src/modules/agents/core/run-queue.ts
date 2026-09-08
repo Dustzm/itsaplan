@@ -1,5 +1,5 @@
 import { db, agentRun, issue, project } from '@repo/db';
-import { and, desc, eq, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { iso } from '#shared/lib';
 import type { AgentRunTrigger } from '../model';
 import { intEnv } from './helpers/env';
@@ -18,8 +18,34 @@ export const agentRunConfig = {
   leaseSeconds: () => intEnv('AGENT_RUN_LEASE_SECONDS', 300),
 };
 
+// Runs of this team's agents that hold a slot and were queued before this one. A claim
+// stamps started_at and pushes next_attempt_at forward, so a pending run that is
+// stamped and still inside that window is one of them — as is a run waiting out its
+// retry backoff, which holds a slot it is not using. Counting only the older runs is
+// what keeps a ceiling from turning away every run of a burst at once: each yields to
+// the ones ahead of it and the rest come back on their next attempt.
+export async function countRunsAhead(teamId: number, runId: number): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(agentRun)
+    .innerJoin(project, eq(project.id, agentRun.projectId))
+    .where(
+      and(
+        eq(project.teamId, teamId),
+        eq(agentRun.status, 'pending'),
+        isNotNull(agentRun.startedAt),
+        gt(agentRun.nextAttemptAt, sql`now()`),
+        lt(agentRun.id, runId),
+      ),
+    );
+  return row?.count ?? 0;
+}
+
 export async function enqueueAgentRun(input: {
   agentId: number;
+  // The project the run works in, which is the issue's. An agent works in several
+  // projects, so the run carries its own rather than reading the agent's.
+  projectId: number;
   issueId: number;
   sourceActivityId: number | null;
   prompt: string;
@@ -31,6 +57,7 @@ export async function enqueueAgentRun(input: {
   const delay = Math.max(0, Math.trunc(input.delaySeconds ?? 0));
   await db.insert(agentRun).values({
     agentId: input.agentId,
+    projectId: input.projectId,
     issueId: input.issueId,
     sourceActivityId: input.sourceActivityId,
     prompt: input.prompt,
@@ -48,8 +75,8 @@ export interface ClaimedRun {
   // The source comment id when the run was triggered by a mention, null for a
   // delegation. The poller frames the task differently for each.
   sourceActivityId: number | null;
-  // The agent's project and bot user, read inline so the poller can run it without a
-  // second query.
+  // The run's project and the agent's bot user, read inline so the poller can run it
+  // without a second query.
   projectId: number;
   agentUserId: string;
   // The agent's own handle, so the prompt can tell whether the text addressed it.
@@ -75,8 +102,8 @@ export interface ClaimedRun {
 // LOCKED lets more than one API replica run without ever claiming the same row.
 // Claiming bumps attempts and pushes next_attempt_at forward by the lease while
 // keeping status 'pending', so a run whose poller crashes mid-flight becomes
-// claimable again after the lease — no separate recovery pass. The agent's
-// project_id and user_id are read inline. An external agent's runs are left alone:
+// claimable again after the lease — no separate recovery pass. The run's project and
+// the agent's user_id are read inline. An external agent's runs are left alone:
 // they are claimed over HTTP by the operator's runner (modules/agents/runner).
 export async function claimDueRuns(): Promise<ClaimedRun[]> {
   const batchSize = agentRunConfig.batchSize();
@@ -84,6 +111,7 @@ export async function claimDueRuns(): Promise<ClaimedRun[]> {
   const rows = await db.execute(sql`
     UPDATE agent_run r
     SET attempts = r.attempts + 1,
+        started_at = coalesce(r.started_at, now()),
         next_attempt_at = now() + make_interval(secs => ${leaseSeconds})
     WHERE r.id IN (
       SELECT id FROM agent_run q
@@ -100,7 +128,7 @@ export async function claimDueRuns(): Promise<ClaimedRun[]> {
       r.prompt,
       r.attempts,
       r.source_activity_id AS "sourceActivityId",
-      (SELECT project_id FROM ai_agent a WHERE a.id = r.agent_id) AS "projectId",
+      r.project_id AS "projectId",
       (SELECT user_id FROM ai_agent a WHERE a.id = r.agent_id) AS "agentUserId",
       (SELECT username FROM ai_agent a WHERE a.id = r.agent_id) AS "agentUsername",
       (SELECT p.key || '-' || i.sequence_number
@@ -222,10 +250,15 @@ export interface AgentRunPage {
 // One page of an agent's runs, newest first. Keyset pagination by id (runs are
 // id-monotonic): pass the previous page's nextCursor as `before`. limit is clamped to
 // 1..50.
+//
+// An agent works in several projects of its team and a run carries the one it ran in,
+// so `projectIds` bounds the page to the projects the reader may see. Omitted, it
+// reads every project — only a caller who runs the team passes nothing.
 export async function listAgentRuns(
   agentId: number,
-  opts: { before?: number; limit?: number } = {},
+  opts: { before?: number; limit?: number; projectIds?: number[] } = {},
 ): Promise<AgentRunPage> {
+  if (opts.projectIds?.length === 0) return { items: [], nextCursor: null };
   const limit = Math.min(Math.max(opts.limit ?? 25, 1), 50);
   const rows = await db
     .select({
@@ -249,7 +282,11 @@ export async function listAgentRuns(
     .leftJoin(issue, eq(issue.id, agentRun.issueId))
     .leftJoin(project, eq(project.id, issue.projectId))
     .where(
-      and(eq(agentRun.agentId, agentId), opts.before ? lt(agentRun.id, opts.before) : undefined),
+      and(
+        eq(agentRun.agentId, agentId),
+        opts.projectIds ? inArray(agentRun.projectId, opts.projectIds) : undefined,
+        opts.before ? lt(agentRun.id, opts.before) : undefined,
+      ),
     )
     .orderBy(desc(agentRun.id))
     .limit(limit + 1);

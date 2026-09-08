@@ -8,12 +8,41 @@ import { request as httpsRequest } from 'node:https';
 // services (including the cloud metadata endpoint at 169.254.169.254), so those are
 // rejected. The check resolves DNS, so a public hostname that points at a private
 // address is caught too.
+//
+// SSRF_ALLOWED_HOSTS names the hosts an operator has decided to trust anyway — see
+// isAllowedHost below. It is empty by default.
 
 export class UrlNotAllowedError extends Error {}
 
 // A hostname that is inherently local (not an IP literal).
 function isLocalHostname(host: string): boolean {
   return host === 'localhost' || host.endsWith('.local');
+}
+
+// Hosts the operator has explicitly trusted even though they resolve privately.
+//
+// The rules above are right for a URL that arrives as content — a webhook target, an
+// attachment to import. A self-hosted repository host is different: its address is
+// configuration, entered by someone who already administers the project's
+// integrations, and on a self-hosted instance it is normally a private one. Without
+// an escape hatch, connecting an instance to a Gitea, Forgejo, or GitLab on the same
+// network cannot be expressed at all.
+//
+// Empty by default, so nothing is exempt unless it is named. Matching is on the exact
+// hostname — no wildcards, no CIDR ranges, no suffix matching — so naming one host
+// trusts one host. Everything else still applies to it: https is still required, and
+// the resolved address is still pinned, so a name on this list cannot be used to
+// mount a DNS-rebinding attack either.
+//
+// Read per call rather than at module load so a test can set it around one case.
+function isAllowedHost(host: string): boolean {
+  const configured = process.env.SSRF_ALLOWED_HOSTS;
+  if (!configured) return false;
+  return configured
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(host);
 }
 
 // IPv4-mapped and IPv4-compatible IPv6 addresses (`::ffff:127.0.0.1`, `::ffff:7f00:1`,
@@ -75,8 +104,9 @@ async function vet(raw: string): Promise<{ url: URL; pin?: Pin }> {
   }
 
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const allowed = isAllowedHost(host);
   if (isLocalHostname(host) || isPrivateIp(host)) {
-    if (!devRelaxed) {
+    if (!devRelaxed && !allowed) {
       throw new UrlNotAllowedError('url must not point to a private or local address');
     }
     return { url };
@@ -88,7 +118,7 @@ async function vet(raw: string): Promise<{ url: URL; pin?: Pin }> {
   } catch {
     throw new UrlNotAllowedError('url host could not be resolved');
   }
-  if (addrs.some((a) => isPrivateIp(a.address)) && !devRelaxed) {
+  if (addrs.some((a) => isPrivateIp(a.address)) && !devRelaxed && !allowed) {
     throw new UrlNotAllowedError('url must not point to a private or local address');
   }
   return { url, pin: addrs[0] };

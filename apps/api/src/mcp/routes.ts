@@ -87,7 +87,8 @@ export const mcpToolRoutes = new Elysia({ name: 'mcp-tools', detail: { tags: ['S
       response: { 200: NotificationPageResponse, ...errors(401) },
       detail: {
         summary: 'List MCP-visible inbox notifications',
-        description: "List the current user's notifications from projects where MCP is enabled.",
+        description:
+          "List the current user's notifications from projects where both team and project MCP are enabled.",
         ...mcpTool('list_notifications'),
       },
     },
@@ -107,7 +108,7 @@ export const mcpToolRoutes = new Elysia({ name: 'mcp-tools', detail: { tags: ['S
       detail: {
         summary: 'Get the MCP-visible unread notification count',
         description:
-          "Count the current user's unread notifications from projects where MCP is enabled.",
+          "Count the current user's unread notifications from projects where both team and project MCP are enabled.",
         ...mcpTool('get_unread_notification_count'),
       },
     },

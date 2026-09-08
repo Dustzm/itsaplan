@@ -79,7 +79,6 @@ function TelegramForm({ settings }: { settings: InstanceTelegramSettings }) {
               value={botToken}
               onChange={setBotToken}
               hasStored={settings.hasBotToken}
-              editable
               placeholder="123456789:AA…"
             />
             <p className="text-xs text-muted-foreground">{t('botTokenHint')}</p>

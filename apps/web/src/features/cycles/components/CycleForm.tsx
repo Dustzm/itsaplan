@@ -92,7 +92,7 @@ export default function CycleForm({
   return (
     <Modal
       title={cycle ? t('form.editTitle') : t('form.newTitle')}
-      projectKey={projectKey}
+      scope={projectKey}
       onClose={onClose}
     >
       <div className="flex flex-col gap-4">

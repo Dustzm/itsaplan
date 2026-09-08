@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { authedApi } from '#tests/helpers/app';
 import { signUpTestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
+import { createRole } from '#tests/helpers/roles';
+import { createAgent } from '#tests/helpers/agents';
 
 type Client = ReturnType<typeof authedApi>;
 
@@ -101,6 +103,22 @@ describe('note boards', () => {
 
       const read = await boards(owner.api)({ boardId }).get();
       expect(read.status).toBe(200);
+    });
+  });
+
+  describe('list', () => {
+    it('answers with every board the caller can see, and narrows it by name', async () => {
+      const owner = await setupOwnerProject();
+      for (let i = 1; i <= 12; i += 1) {
+        await boards(owner.api).post({ name: `Board ${i}` });
+      }
+      await boards(owner.api).post({ name: 'Roadmap' });
+
+      const all = await boards(owner.api).get();
+      expect(all.data).toHaveLength(13);
+
+      const found = await boards(owner.api).get({ query: { q: 'Roadmap' } });
+      expect(found.data?.map((b) => b.name)).toEqual(['Roadmap']);
     });
   });
 
@@ -219,9 +237,7 @@ describe('note boards', () => {
 
     it('rejects granting access to a member whose role cannot read notes', async () => {
       const owner = await setupOwnerProject();
-      const role = await owner.api
-        .projects({ projectKey: 'MKT' })
-        .roles.post({ name: 'No notes', permissions: {} });
+      const role = await createRole(owner.api, 'MKT', { name: 'No notes', permissions: {} });
       const member = await addMember(owner.api, { roleId: role.data!.id });
       const boardId = (await boards(owner.api).post({ name: 'Ideas' })).data!.id;
 
@@ -240,13 +256,13 @@ describe('note boards', () => {
     it('lists members and agents, flagging who may read notes', async () => {
       const owner = await setupOwnerProject();
       const member = await addMember(owner.api);
-      const role = await owner.api
-        .projects({ projectKey: 'MKT' })
-        .roles.post({ name: 'No notes', permissions: {} });
+      const role = await createRole(owner.api, 'MKT', { name: 'No notes', permissions: {} });
       const noNotes = await addMember(owner.api, { roleId: role.data!.id });
-      const agent = await owner.api
-        .projects({ projectKey: 'MKT' })
-        ['ai-agents'].post({ name: 'Bot', username: 'bot', kind: 'external' });
+      const agent = await createAgent(owner.api, 'MKT', {
+        name: 'Bot',
+        username: 'bot',
+        kind: 'external',
+      });
 
       const res = await boards(owner.api)['access-candidates'].get();
       expect(res.status).toBe(200);
@@ -259,9 +275,10 @@ describe('note boards', () => {
 
     it('holds a read-only role out of the candidate list', async () => {
       const owner = await setupOwnerProject();
-      const role = await owner.api
-        .projects({ projectKey: 'MKT' })
-        .roles.post({ name: 'Reader', permissions: { note_boards: { read: true } } });
+      const role = await createRole(owner.api, 'MKT', {
+        name: 'Reader',
+        permissions: { note_boards: { read: true } },
+      });
       const member = await addMember(owner.api, { roleId: role.data!.id });
 
       expect((await boards(member.api)['access-candidates'].get()).status).toBe(403);
@@ -284,9 +301,7 @@ describe('note boards', () => {
 
     it('holds a role without the note_boards resource out of the section', async () => {
       const owner = await setupOwnerProject();
-      const role = await owner.api
-        .projects({ projectKey: 'MKT' })
-        .roles.post({ name: 'No notes', permissions: {} });
+      const role = await createRole(owner.api, 'MKT', { name: 'No notes', permissions: {} });
       const member = await addMember(owner.api, { roleId: role.data!.id });
       const boardId = (await boards(owner.api).post({ name: 'Ideas' })).data!.id;
 
@@ -299,9 +314,10 @@ describe('note boards', () => {
 
     it('lets a read-only role read boards but not change them', async () => {
       const owner = await setupOwnerProject();
-      const role = await owner.api
-        .projects({ projectKey: 'MKT' })
-        .roles.post({ name: 'Reader', permissions: { note_boards: { read: true } } });
+      const role = await createRole(owner.api, 'MKT', {
+        name: 'Reader',
+        permissions: { note_boards: { read: true } },
+      });
       const member = await addMember(owner.api, { roleId: role.data!.id });
       const boardId = (await boards(owner.api).post({ name: 'Ideas' })).data!.id;
 
