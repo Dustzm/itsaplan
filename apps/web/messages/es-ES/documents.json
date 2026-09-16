@@ -188,6 +188,66 @@
     "alignCenter": "Alinear al centro",
     "alignRight": "Alinear a la derecha",
     "undo": "Deshacer",
-    "redo": "Rehacer"
+    "redo": "Rehacer",
+    "editorLabel": "Contenido del documento"
+  },
+  "recentAndFavorites": "Recientes y favoritos",
+  "searching": "Buscando documentos…",
+  "blocks": {
+    "actions": "Acciones del bloque",
+    "up": "Subir",
+    "down": "Bajar",
+    "duplicate": "Duplicar bloque o sección",
+    "delete": "Eliminar bloque o sección",
+    "copyLink": "Copiar enlace al bloque",
+    "linkCopied": "Enlace copiado",
+    "copyFailed": "No se pudo copiar el enlace"
+  },
+  "sync": {
+    "connecting": "Conectando con el documento…",
+    "offline": "Sin conexión. Los cambios se guardan en esta pestaña y se sincronizarán al reconectar.",
+    "error": "Los cambios no se han sincronizado. Tu borrador se conserva en esta pestaña.",
+    "conflict": "El documento se restauró, se reemplazó o cambió el acceso. Guarda tu borrador antes de volver a unirte.",
+    "retry": "Reintentar",
+    "recoveryConflict": "El documento del servidor fue reemplazado. Aquí se muestra tu texto sin guardar. Expórtalo antes de abrir la versión actual.",
+    "exportRecovery": "Exportar mi texto",
+    "discardRecovery": "Abrir la versión actual",
+    "discardConfirm": "¿Descartar esta copia sin guardar y abrir la versión actual del servidor? Exporta tu texto primero si lo necesitas."
+  },
+  "workItem": {
+    "create": "Crear elemento de trabajo",
+    "description": "Crea un elemento de trabajo vinculado a partir de esta selección.",
+    "title": "Título",
+    "status": "Estado",
+    "source": "Documento de origen",
+    "cancel": "Cancelar",
+    "creating": "Creando…",
+    "failed": "No se pudo crear el elemento de trabajo. Inténtalo de nuevo.",
+    "linkFailed": "El elemento de trabajo se creó. Reintenta para terminar de vincularlo; no se creará otro elemento.",
+    "retryLink": "Reintentar vinculación"
+  },
+  "selectionActions": "Acciones de la selección",
+  "comments": {
+    "title": "Comentarios",
+    "add": "Comentar",
+    "edit": "Editar comentario",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "reply": "Responder",
+    "replyPlaceholder": "Escribe una respuesta…",
+    "send": "Enviar",
+    "resolve": "Resolver",
+    "reopen": "Reabrir",
+    "textRemoved": "El texto seleccionado se eliminó",
+    "unknownAuthor": "Antiguo miembro",
+    "close": "Cerrar comentarios",
+    "placeholder": "Comenta esta selección…",
+    "resolved": "Resueltos",
+    "open": "Abiertos",
+    "failed": "No se pudo guardar. Puede que el documento haya cambiado; selecciona el texto de nuevo o reintenta.",
+    "loading": "Cargando comentarios…",
+    "retry": "Reintentar",
+    "noResolved": "No hay discusiones resueltas.",
+    "empty": "Selecciona texto para iniciar una discusión."
   }
 }
