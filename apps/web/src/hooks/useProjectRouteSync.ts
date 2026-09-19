@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import type { Project } from '@/lib/api';
+import type { Project } from '@/lib/api/endpoints/projects';
 import { projectPath } from '@/utils/paths';
 import {
   useAccountPreferencesQuery,
@@ -29,8 +29,9 @@ export function useProjectRouteSync({
   useEffect(() => {
     if (!projectsLoaded) return;
     if (projectKey && projects.some((p) => p.key === projectKey)) return;
-    const first = projects[0]?.key;
+    const first = projects.find((project) => !project.isHidden)?.key;
     if (first) router.replace(projectPath(first));
+    else if (projects.length > 0) router.replace('/');
   }, [projectsLoaded, projects, projectKey, router]);
 
   // Written only when it differs from what is stored. A failed save rolls the

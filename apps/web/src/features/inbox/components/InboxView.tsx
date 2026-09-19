@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { type Notification, type ProjectDetail } from '@/lib/api';
+import type { ProjectDetail } from '@/lib/api/endpoints/projects';
+import type { Notification } from '@/lib/api/endpoints/notifications';
 import { cn } from '@/lib/utils';
 import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 import { revScope } from '@/utils/revScopes';
@@ -91,6 +92,7 @@ export default function InboxView({ project }: { project: ProjectDetail }) {
           key={selected.issueId}
           project={project}
           issueId={selected.issueId}
+          issueSeq={selected.issueSeq}
           isMobile={isMobile}
           onBack={() => setSelected(null)}
           onDeleted={() => setSelected(null)}

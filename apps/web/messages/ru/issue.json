@@ -220,7 +220,12 @@
     "cancel": "Отмена",
     "toSend": "чтобы отправить",
     "unknownAuthor": "Неизвестный",
-    "goToLastComment": "Перейти к последнему комментарию"
+    "goToLastComment": "Перейти к последнему комментарию",
+    "edit": "Редактировать",
+    "edited": "изменено",
+    "deleteComment": "Удалить комментарий",
+    "deleteCommentTitle": "Удалить этот комментарий?",
+    "deleteCommentConfirmation": "Комментарий и ответы на него будут удалены безвозвратно."
   },
   "stats": {
     "title": "Статистика",
@@ -318,7 +323,9 @@
     "pullRequestOpened": "открыл(а) пул-реквест <v>{pr}</v>",
     "worklogAdded": "записал(а) <v>{time}</v> за <v>{date}</v>",
     "worklogChanged": "изменил(а) запись <v>{from}</v> за <v>{fromDate}</v> на <v>{to}</v> за <v>{date}</v>",
-    "worklogRemoved": "удалил(а) запись <v>{time}</v> за <v>{date}</v>"
+    "worklogRemoved": "удалил(а) запись <v>{time}</v> за <v>{date}</v>",
+    "commentEdited": "изменил комментарий",
+    "commentDeleted": "удалил комментарий"
   },
   "development": {
     "title": "Разработка",
@@ -380,9 +387,9 @@
     }
   },
   "documents": {
-    "title": "Docs",
-    "add": "Связать страницу Docs",
-    "empty": "Связанных страниц Docs пока нет.",
+    "title": "Документы",
+    "add": "Связать документ",
+    "empty": "Связанных документов пока нет.",
     "loadFailed": "Не удалось загрузить связанные страницы. Нажмите, чтобы повторить.",
     "remove": "Отвязать {title}",
     "untitled": "Без названия"

@@ -4,11 +4,10 @@ import { act } from 'react';
 import type { Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { JSDOM } from 'jsdom';
-import type { ProjectDocument } from '@/lib/api';
+import type { ProjectDocument } from '@/lib/api/endpoints/documents';
 
 type UseDocumentDraft = (typeof import('./useDocumentDraft'))['useDocumentDraft'];
 type DocumentDraftController = ReturnType<UseDocumentDraft>;
-type Api = (typeof import('@/lib/api'))['api'];
 
 const replacedGlobals = [
   'window',
@@ -22,10 +21,16 @@ let dom: JSDOM;
 let root: Root;
 let queryClient: QueryClient;
 let useDocumentDraft: UseDocumentDraft;
-let api: Api;
-let originalUpdateDocument: Api['updateDocument'];
+let originalFetch: typeof fetch;
 let controller: DocumentDraftController | null;
 let originalGlobalDescriptors: Map<string, PropertyDescriptor | undefined>;
+
+// Holds the save in flight until the test resolves it. The update is stubbed at
+// fetch rather than at updateDocument: an ES module binding cannot be reassigned.
+function stubSave(update: Promise<ProjectDocument>): void {
+  globalThis.fetch = (() =>
+    update.then((document) => new Response(JSON.stringify(document)))) as typeof fetch;
+}
 
 function projectDocument(version: number, content: string): ProjectDocument {
   return {
@@ -55,12 +60,14 @@ function projectDocument(version: number, content: string): ProjectDocument {
 function Probe({
   document,
   editable,
+  collaborative = false,
   onController = (value) => {
     controller = value;
   },
 }: {
   document: ProjectDocument;
   editable: boolean;
+  collaborative?: boolean;
   onController?: (value: DocumentDraftController) => void;
 }) {
   const value = useDocumentDraft({
@@ -68,6 +75,7 @@ function Probe({
     document,
     editable,
     userId: 'user-1',
+    collaborative,
   });
   onController(value);
   return null;
@@ -78,18 +86,24 @@ function renderInto(
   document: ProjectDocument,
   editable: boolean,
   onController?: (value: DocumentDraftController) => void,
+  collaborative = false,
 ) {
   act(() =>
     targetRoot.render(
       <QueryClientProvider client={queryClient}>
-        <Probe document={document} editable={editable} onController={onController} />
+        <Probe
+          document={document}
+          editable={editable}
+          collaborative={collaborative}
+          onController={onController}
+        />
       </QueryClientProvider>,
     ),
   );
 }
 
-function render(document: ProjectDocument, editable = true) {
-  renderInto(root, document, editable);
+function render(document: ProjectDocument, editable = true, collaborative = false) {
+  renderInto(root, document, editable, undefined, collaborative);
   assert.ok(controller);
 }
 
@@ -112,8 +126,7 @@ beforeEach(async () => {
   });
 
   ({ useDocumentDraft } = await import('./useDocumentDraft'));
-  ({ api } = await import('@/lib/api'));
-  originalUpdateDocument = api.updateDocument;
+  originalFetch = globalThis.fetch;
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   controller = null;
 
@@ -124,7 +137,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  api.updateDocument = originalUpdateDocument;
+  globalThis.fetch = originalFetch;
   act(() => root.unmount());
   queryClient.clear();
   dom.window.close();
@@ -177,7 +190,7 @@ describe('useDocumentDraft', () => {
     const update = new Promise<ProjectDocument>((resolve) => {
       resolveUpdate = resolve;
     });
-    api.updateDocument = () => update;
+    stubSave(update);
 
     act(() => controller!.setContent('Snapshot A', { type: 'doc', content: [] }));
     let savePromise!: Promise<ProjectDocument | null>;
@@ -222,7 +235,7 @@ describe('useDocumentDraft', () => {
     const update = new Promise<ProjectDocument>((resolve) => {
       resolveUpdate = resolve;
     });
-    api.updateDocument = () => update;
+    stubSave(update);
 
     act(() => controller!.setContent('Saved by tab A', { type: 'doc', content: [] }));
     let savePromise!: Promise<ProjectDocument | null>;
@@ -276,7 +289,7 @@ describe('useDocumentDraft', () => {
     const update = new Promise<ProjectDocument>((resolve) => {
       resolveUpdate = resolve;
     });
-    api.updateDocument = () => update;
+    stubSave(update);
 
     act(() => tabA.setContent('Saved by tab A', { type: 'doc', content: [] }));
     let savePromise!: Promise<ProjectDocument | null>;
@@ -306,5 +319,38 @@ describe('useDocumentDraft', () => {
 
     act(() => tabBRoot.unmount());
     tabBElement.remove();
+  });
+});
+
+describe('collaborative document titles and legacy drafts', () => {
+  it('rebases title changes over body-only updates and protects a competing title', () => {
+    render(projectDocument(1, 'Initial'), true, true);
+    act(() => controller!.setTitle('My title'));
+    act(() => controller!.adoptServerDocument(projectDocument(2, 'Remote body')));
+    assert.equal(controller!.version, 2);
+    assert.equal(controller!.saveState, 'saved');
+    act(() =>
+      controller!.adoptServerDocument({
+        ...projectDocument(3, 'Remote body'),
+        title: 'Other title',
+      }),
+    );
+    assert.equal(controller!.title, 'My title');
+    assert.equal(controller!.saveState, 'conflict');
+    act(() => controller!.adoptServerDocument(projectDocument(1, 'Stale body')));
+    assert.equal(controller!.version, 3);
+  });
+  it('preserves a body draft made before collaborative editing was enabled', () => {
+    window.localStorage.setItem(
+      'itsaplan:document-draft:user-1:SEKTA:42',
+      JSON.stringify({ title: 'Runbook', content: 'Unsaved old editor text', baseVersion: 1 }),
+    );
+    render(projectDocument(1, 'Initial'), true, true);
+    assert.equal(controller!.legacyDraft, true);
+    assert.equal(controller!.content, 'Unsaved old editor text');
+    assert.equal(controller!.saveState, 'conflict');
+    act(() => controller!.replaceWith(projectDocument(2, 'Current')));
+    assert.equal(controller!.legacyDraft, false);
+    assert.equal(controller!.content, 'Current');
   });
 });

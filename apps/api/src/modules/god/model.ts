@@ -18,7 +18,9 @@ export const listUsersQuery = t.Object({
   ...pageQueryFields,
 });
 
-export const listProjectsQuery = t.Object({
+// The query every searchable directory listing takes: the projects, the teams, and a
+// team's own projects and members.
+export const searchPageQuery = t.Object({
   search: t.Optional(t.String()),
   ...pageQueryFields,
 });
@@ -34,6 +36,7 @@ export const AuthSettingsResponse = t.Object({
   requireEmailVerification: t.Boolean(),
   magicLink: t.Boolean(),
   emailPassword: t.Boolean(),
+  trustProviderEmails: t.Boolean(),
   // The settings that depend on outbound email cannot be turned on without a mail
   // provider, and the UI explains why.
   hasEmailProvider: t.Boolean(),
@@ -47,6 +50,7 @@ export const AuthSettingsBody = t.Object({
   requireEmailVerification: t.Optional(t.Boolean()),
   magicLink: t.Optional(t.Boolean()),
   emailPassword: t.Optional(t.Boolean()),
+  trustProviderEmails: t.Optional(t.Boolean()),
 });
 
 export const EmailSettingsResponse = t.Object({
@@ -268,4 +272,46 @@ export const InstanceProjectPageResponse = pageResponse(InstanceProjectResponse)
 
 export const InstanceProjectOptionListResponse = t.Array(
   t.Object({ id: t.Number(), key: t.String(), name: t.String() }),
+);
+
+export const teamParams = t.Object({ teamId: t.Numeric() });
+
+export const InstanceTeamResponse = t.Object({
+  id: t.Number(),
+  name: t.String(),
+  mcpEnabled: t.Boolean(),
+  memberCount: t.Number(),
+  projectCount: t.Number(),
+  issueCount: t.Number(),
+  agentCount: t.Number(),
+  skillCount: t.Number(),
+  toolCount: t.Number(),
+  roleCount: t.Number(),
+  createdAt: t.String(),
+});
+
+export const InstanceTeamPageResponse = pageResponse(InstanceTeamResponse);
+
+export const InstanceTeamProjectPageResponse = pageResponse(
+  t.Object({
+    id: t.Number(),
+    key: t.String(),
+    name: t.String(),
+    mcpEnabled: t.Boolean(),
+    memberCount: t.Number(),
+    issueCount: t.Number(),
+    createdAt: t.String(),
+  }),
+);
+
+export const InstanceTeamMemberPageResponse = pageResponse(
+  t.Object({
+    userId: t.String(),
+    name: t.String(),
+    email: t.String(),
+    image: t.Nullable(t.String()),
+    isAgent: t.Boolean(),
+    role: t.UnionEnum(['owner', 'manager', 'member', 'agent']),
+    joinedAt: t.String(),
+  }),
 );

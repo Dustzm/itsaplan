@@ -339,6 +339,7 @@ export const FeedItemResponse = t.Object({
   action: t.Nullable(t.String()),
   payload: ActivityPayloadResponse,
   createdAt: t.String(),
+  editedAt: t.Nullable(t.String()),
 });
 
 export const FeedCursorResponse = t.Nullable(t.Object({ ts: t.String(), id: t.Number() }));
@@ -611,6 +612,14 @@ export const feedRangeQuery = t.Object({
 export const createCommentBody = t.Object({
   body: t.String({ minLength: 1, description: 'Comment text.' }),
   replyToId: t.Optional(t.Number({ description: 'Reply to this comment of the same issue.' })),
+});
+
+export const updateCommentBody = t.Object({
+  body: t.String({ minLength: 1, description: 'Comment text.' }),
+});
+
+export const commentParams = t.Object({
+  commentId: t.Numeric({ description: 'The comment id.' }),
 });
 
 export const archiveIssueBody = t.Optional(

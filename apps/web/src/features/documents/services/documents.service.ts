@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  api,
   type DocumentIssueLink,
   type DocumentAsset,
   type IssueDocumentLink,
@@ -9,7 +8,30 @@ import {
   type ProjectDocumentPatch,
   type ProjectDocumentRevisionSummary,
   type ProjectDocumentSummary,
-} from '@/lib/api';
+  listDocuments,
+  getDocument,
+  listDocumentIssueLinks,
+  listIssueDocumentLinks,
+  linkDocumentIssue,
+  unlinkDocumentIssue,
+  listInitiativeDocumentLinks,
+  linkDocumentInitiative,
+  unlinkDocumentInitiative,
+  createDocument,
+  duplicateDocument,
+  setDocumentAccess,
+  setDocumentLocked,
+  archiveDocument,
+  restoreDocument,
+  setDocumentFavorite,
+  listDocumentRevisions,
+  listDocumentAssets,
+  uploadDocumentAsset,
+  deleteDocumentAsset,
+  restoreDocumentRevision,
+  updateDocument,
+  deleteDocument,
+} from '@/lib/api/endpoints/documents';
 import { qk } from '@/services/queryKeys';
 import { applyOptimisticDocumentMove } from '../utils/documentMove';
 
@@ -22,18 +44,24 @@ function invalidateLists(qc: ReturnType<typeof useQueryClient>, projectKey: stri
   void qc.invalidateQueries({ queryKey: qk.documentListsForProject(projectKey) });
 }
 
-export function useDocumentsQuery(projectKey: string | null, q = '', archived = false) {
+export function useDocumentsQuery(
+  projectKey: string | null,
+  q = '',
+  archived = false,
+  enabled = true,
+) {
   return useQuery({
     queryKey: qk.documents(projectKey ?? '', q, archived),
-    queryFn: () => api.listDocuments(projectKey!, q || undefined, archived),
-    enabled: projectKey != null,
+    queryFn: () => listDocuments(projectKey!, q || undefined, archived),
+    enabled: enabled && projectKey != null,
+    staleTime: 30_000,
   });
 }
 
 export function useDocumentQuery(projectKey: string | null, documentId: number | null) {
   return useQuery({
     queryKey: qk.document(projectKey ?? '', documentId ?? 0),
-    queryFn: () => api.getDocument(projectKey!, documentId!),
+    queryFn: () => getDocument(projectKey!, documentId!),
     enabled: projectKey != null && documentId != null,
     refetchOnMount: 'always',
   });
@@ -46,7 +74,7 @@ export function useDocumentIssueLinksQuery(
 ) {
   return useQuery<DocumentIssueLink[]>({
     queryKey: qk.documentIssueLinks(projectKey ?? '', documentId ?? 0),
-    queryFn: () => api.listDocumentIssueLinks(projectKey!, documentId!),
+    queryFn: () => listDocumentIssueLinks(projectKey!, documentId!),
     enabled: enabled && projectKey != null && documentId != null,
   });
 }
@@ -58,7 +86,7 @@ export function useIssueDocumentLinksQuery(
 ) {
   return useQuery<IssueDocumentLink[]>({
     queryKey: qk.issueDocumentLinks(projectKey ?? '', issueId ?? 0),
-    queryFn: () => api.listIssueDocumentLinks(projectKey!, issueId!),
+    queryFn: () => listIssueDocumentLinks(projectKey!, issueId!),
     enabled: enabled && projectKey != null && issueId != null,
   });
 }
@@ -67,7 +95,7 @@ export function useLinkDocumentIssue(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, issueId }: { documentId: number; issueId: number }) =>
-      api.linkDocumentIssue(projectKey!, documentId, issueId),
+      linkDocumentIssue(projectKey!, documentId, issueId),
     onSuccess: (_link, { documentId, issueId }) => {
       if (!projectKey) return;
       void qc.invalidateQueries({ queryKey: qk.documentIssueLinks(projectKey, documentId) });
@@ -80,7 +108,7 @@ export function useUnlinkDocumentIssue(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, issueId }: { documentId: number; issueId: number }) =>
-      api.unlinkDocumentIssue(projectKey!, documentId, issueId),
+      unlinkDocumentIssue(projectKey!, documentId, issueId),
     onSuccess: (_result, { documentId, issueId }) => {
       if (!projectKey) return;
       void qc.invalidateQueries({ queryKey: qk.documentIssueLinks(projectKey, documentId) });
@@ -96,7 +124,7 @@ export function useInitiativeDocumentLinksQuery(
 ) {
   return useQuery<IssueDocumentLink[]>({
     queryKey: qk.initiativeDocumentLinks(projectKey ?? '', initiativeId ?? 0),
-    queryFn: () => api.listInitiativeDocumentLinks(projectKey!, initiativeId!),
+    queryFn: () => listInitiativeDocumentLinks(projectKey!, initiativeId!),
     enabled: enabled && projectKey != null && initiativeId != null,
   });
 }
@@ -105,7 +133,7 @@ export function useLinkDocumentInitiative(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, initiativeId }: { documentId: number; initiativeId: number }) =>
-      api.linkDocumentInitiative(projectKey!, documentId, initiativeId),
+      linkDocumentInitiative(projectKey!, documentId, initiativeId),
     onSuccess: (_link, { initiativeId }) => {
       if (!projectKey) return;
       void qc.invalidateQueries({ queryKey: qk.initiativeDocumentLinks(projectKey, initiativeId) });
@@ -117,7 +145,7 @@ export function useUnlinkDocumentInitiative(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, initiativeId }: { documentId: number; initiativeId: number }) =>
-      api.unlinkDocumentInitiative(projectKey!, documentId, initiativeId),
+      unlinkDocumentInitiative(projectKey!, documentId, initiativeId),
     onSuccess: (_result, { initiativeId }) => {
       if (!projectKey) return;
       void qc.invalidateQueries({ queryKey: qk.initiativeDocumentLinks(projectKey, initiativeId) });
@@ -128,7 +156,7 @@ export function useUnlinkDocumentInitiative(projectKey: string | null) {
 export function useCreateDocument(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: NewProjectDocumentInput) => api.createDocument(projectKey!, input),
+    mutationFn: (input: NewProjectDocumentInput) => createDocument(projectKey!, input),
     onSuccess: (document) => {
       if (!projectKey) return;
       qc.setQueryData<ProjectDocument>(qk.document(projectKey, document.id), document);
@@ -150,7 +178,7 @@ export function useDuplicateDocument(projectKey: string | null) {
       version: number;
       title: string;
       parentId: number | null;
-    }) => api.duplicateDocument(projectKey!, documentId, { version, title, parentId }),
+    }) => duplicateDocument(projectKey!, documentId, { version, title, parentId }),
     onSuccess: (document) => {
       if (!projectKey) return;
       qc.setQueryData<ProjectDocument>(qk.document(projectKey, document.id), document);
@@ -193,7 +221,7 @@ export function useSetDocumentAccess(projectKey: string | null) {
       documentId: number;
       version: number;
       isPrivate: boolean;
-    }) => api.setDocumentAccess(projectKey!, documentId, { version, isPrivate }),
+    }) => setDocumentAccess(projectKey!, documentId, { version, isPrivate }),
   );
 }
 
@@ -201,7 +229,7 @@ export function useSetDocumentLocked(projectKey: string | null) {
   return useDocumentMutation(
     projectKey,
     ({ documentId, version, locked }: { documentId: number; version: number; locked: boolean }) =>
-      api.setDocumentLocked(projectKey!, documentId, version, locked),
+      setDocumentLocked(projectKey!, documentId, version, locked),
   );
 }
 
@@ -209,7 +237,7 @@ export function useArchiveDocument(projectKey: string | null) {
   return useDocumentMutation(
     projectKey,
     ({ documentId, version }: { documentId: number; version: number }) =>
-      api.archiveDocument(projectKey!, documentId, version),
+      archiveDocument(projectKey!, documentId, version),
   );
 }
 
@@ -217,7 +245,7 @@ export function useRestoreDocument(projectKey: string | null) {
   return useDocumentMutation(
     projectKey,
     ({ documentId, version }: { documentId: number; version: number }) =>
-      api.restoreDocument(projectKey!, documentId, version),
+      restoreDocument(projectKey!, documentId, version),
   );
 }
 
@@ -225,7 +253,7 @@ export function useSetDocumentFavorite(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, isFavorite }: { documentId: number; isFavorite: boolean }) =>
-      api.setDocumentFavorite(projectKey!, documentId, isFavorite),
+      setDocumentFavorite(projectKey!, documentId, isFavorite),
     onMutate: async ({ documentId, isFavorite }) => {
       if (!projectKey) return;
       await qc.cancelQueries({ queryKey: qk.documentListsForProject(projectKey) });
@@ -266,7 +294,7 @@ export function useDocumentRevisionsQuery(
 ) {
   return useQuery<ProjectDocumentRevisionSummary[]>({
     queryKey: qk.documentRevisions(projectKey ?? '', documentId ?? 0),
-    queryFn: () => api.listDocumentRevisions(projectKey!, documentId!),
+    queryFn: () => listDocumentRevisions(projectKey!, documentId!),
     enabled: enabled && projectKey != null && documentId != null,
   });
 }
@@ -274,7 +302,7 @@ export function useDocumentRevisionsQuery(
 export function useDocumentAssetsQuery(projectKey: string | null, documentId: number | null) {
   return useQuery<DocumentAsset[]>({
     queryKey: qk.documentAssets(projectKey ?? '', documentId ?? 0),
-    queryFn: () => api.listDocumentAssets(projectKey!, documentId!),
+    queryFn: () => listDocumentAssets(projectKey!, documentId!),
     enabled: projectKey != null && documentId != null,
   });
 }
@@ -282,7 +310,7 @@ export function useDocumentAssetsQuery(projectKey: string | null, documentId: nu
 export function useUploadDocumentAsset(projectKey: string | null, documentId: number | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => api.uploadDocumentAsset(projectKey!, documentId!, file),
+    mutationFn: (file: File) => uploadDocumentAsset(projectKey!, documentId!, file),
     onSuccess: (asset) => {
       if (!projectKey || documentId === null) return;
       qc.setQueryData<DocumentAsset[]>(qk.documentAssets(projectKey, documentId), (previous) => [
@@ -296,7 +324,7 @@ export function useUploadDocumentAsset(projectKey: string | null, documentId: nu
 export function useDeleteDocumentAsset(projectKey: string | null, documentId: number | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (publicId: string) => api.deleteDocumentAsset(projectKey!, documentId!, publicId),
+    mutationFn: (publicId: string) => deleteDocumentAsset(projectKey!, documentId!, publicId),
     onSuccess: (_result, publicId) => {
       if (!projectKey || documentId === null) return;
       qc.setQueryData<DocumentAsset[]>(qk.documentAssets(projectKey, documentId), (previous) =>
@@ -317,7 +345,7 @@ export function useRestoreDocumentRevision(projectKey: string | null) {
       documentId: number;
       revisionId: number;
       version: number;
-    }) => api.restoreDocumentRevision(projectKey!, documentId, revisionId, version),
+    }) => restoreDocumentRevision(projectKey!, documentId, revisionId, version),
     onSuccess: (document) => {
       if (!projectKey) return;
       cacheDocument(qc, projectKey, document);
@@ -330,7 +358,7 @@ export function useUpdateDocument(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, patch }: { documentId: number; patch: ProjectDocumentPatch }) =>
-      api.updateDocument(projectKey!, documentId, patch),
+      updateDocument(projectKey!, documentId, patch),
     onSuccess: (document) => {
       if (!projectKey) return;
       qc.setQueryData<ProjectDocument>(qk.document(projectKey, document.id), document);
@@ -339,10 +367,10 @@ export function useUpdateDocument(projectKey: string | null) {
         (previous) =>
           previous?.map((item) => (item.id === document.id ? summaryOf(document) : item)),
       );
-      // Search membership can change when either title or content changes. The
-      // immediate replacement keeps visible summaries fresh; the refetch adds or
-      // removes the page from every cached search result as needed.
-      invalidateLists(qc, projectKey);
+      void qc.invalidateQueries({
+        queryKey: qk.documentListsForProject(projectKey),
+        predicate: (query) => Boolean(query.queryKey[4]),
+      });
     },
   });
 }
@@ -365,7 +393,7 @@ export function useMoveDocument(projectKey: string | null) {
       previousSiblingId: number | null;
       nextSiblingId: number | null;
     }) =>
-      api.updateDocument(projectKey!, documentId, {
+      updateDocument(projectKey!, documentId, {
         version,
         parentId,
         position,
@@ -405,7 +433,7 @@ export function useDeleteDocument(projectKey: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, version }: { documentId: number; version: number }) =>
-      api.deleteDocument(projectKey!, documentId, version),
+      deleteDocument(projectKey!, documentId, version),
     onSuccess: (_result, { documentId }) => {
       if (!projectKey) return;
       qc.removeQueries({ queryKey: qk.document(projectKey, documentId) });

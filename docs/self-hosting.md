@@ -19,7 +19,6 @@ The stack refuses to start while one of these is missing:
 | `POSTGRES_PASSWORD`     | `openssl rand -base64 32`                  |
 | `BETTER_AUTH_SECRET`    | `openssl rand -base64 32`                  |
 | `APP_ENCRYPTION_KEY`    | `openssl rand -base64 32`                  |
-| `WORKER_INTERNAL_TOKEN` | `openssl rand -base64 32`                  |
 | `S3_ACCESS_KEY_ID`      | the MinIO root user, any name over 3 chars |
 | `S3_SECRET_ACCESS_KEY`  | `openssl rand -base64 32`                  |
 
@@ -50,6 +49,14 @@ nothing here needs a restart.
 The first sign-in creates the account, and the registration mode under **Authentication**
 decides whether it may: `open` creates it, `invite only` needs a pending project invite,
 `closed` refuses it. On a closed instance, provision people with SCIM.
+
+A sign-in whose address already has an account joins that account instead of creating a
+second one. That needs the provider to report the address as verified and the account to
+have confirmed its own, so it is refused when the OIDC client leaves `email_verified` off
+the token, or when the instance has no mail provider and so no confirmed accounts.
+**Authentication → Trust addresses from sign-in providers** drops both conditions. Turn it
+on only where you control who can register at the provider: anyone who registers an address
+there takes over the account that holds it here.
 
 Once a provider works, you can turn off **Authentication → Email and password**. The sign-in
 and sign-up forms, password reset and sign-in links are then hidden and refused, and the

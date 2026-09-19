@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,7 +58,7 @@ export default function AuthLoginForm() {
   const passwordEnabled = authConfig?.emailPassword !== false;
   const params = useSearchParams();
   const justReset = params.get('reset') === '1';
-  // `apiFailure` in lib/api.ts sends the browser here with ?expired=1 after the API
+  // `apiFailure` in lib/api/core/client.ts sends the browser here with ?expired=1 after the API
   // refused the session, so the screen can say why the user is back on it.
   const sessionExpired = params.get('expired') === '1';
   // A Google sign-in or a confirmation link that could not complete comes back here
@@ -69,6 +69,12 @@ export default function AuthLoginForm() {
   // The confirmation link carries ?verified=1 and adds ?error=… when it failed, so
   // the success line only stands while there is no error next to it.
   const justVerified = params.get('verified') === '1' && !redirectError;
+
+  const router = useRouter();
+  // A fresh instance has nobody to sign in: the first account is created on sign-up.
+  useEffect(() => {
+    if (authConfig?.hasUsers === false) router.replace('/register');
+  }, [authConfig?.hasUsers, router]);
 
   function switchTo(next: Method) {
     setMethod(next);

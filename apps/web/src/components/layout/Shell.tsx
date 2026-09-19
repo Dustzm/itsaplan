@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useInitiativeOptionsQuery } from '@/services/initiatives.service';
 import { useIssueBySeqQuery } from '@/services/issues.service';
 import { useAccountPreferences } from '@/services/preferences.service';
-import type { IssueOpenMode } from '@/lib/api';
+import type { IssueOpenMode } from '@/lib/api/endpoints/userPreferences';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useOverlays } from '@/hooks/useOverlays';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -152,7 +152,6 @@ export default function Shell({
           projects={projects}
           currentProjectKey={projectKey}
           onSelectProject={(key) => router.push(projectPath(key))}
-          onNewTeam={() => overlays.setShowNewTeam(true)}
         />
         <SidebarInset className="min-w-0">
           <AppHeader

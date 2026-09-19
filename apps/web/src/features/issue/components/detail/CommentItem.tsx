@@ -1,9 +1,13 @@
-import { Reply } from 'lucide-react';
-import { type FeedItem } from '@/lib/api';
+import { useState } from 'react';
+import { Pencil, Reply, Trash2 } from 'lucide-react';
+import type { FeedItem } from '@/lib/api/endpoints/activity';
 import Avatar from '@/components/common/Avatar';
+import ConfirmDialog from '@/components/common/overlay/ConfirmDialog';
+import MarkdownEditor from '@/components/common/editor/MarkdownEditor';
 import { Button } from '@/components/ui/button';
 import { useRelativeTime } from '@/context/relativeTimeContext';
-import MarkdownEditor from '@/components/common/editor/MarkdownEditor';
+import CommentComposer, { type ComposerContext } from './CommentComposer';
+import { useDeleteComment } from '../../services/comments.service';
 import { useTranslations } from 'next-intl';
 
 // One comment inside a thread card: a line of author, age and the reply button over
@@ -15,16 +19,28 @@ export default function CommentItem({
   item,
   image,
   onReply,
+  canEdit,
+  canDelete,
+  composer,
 }: {
   item: FeedItem;
   image: string | null;
   // Left out where replying is not offered: the shared read-only feed and the
   // timeline popover.
   onReply?: () => void;
+  // Set by CommentThread only where the current user may change this comment: the
+  // author with work_items edit, or a project owner. The API asserts the same.
+  canEdit?: boolean;
+  canDelete?: boolean;
+  // The feed's composer state; the edit box posts with the same @-mention menu.
+  composer?: ComposerContext;
 }) {
   const t = useTranslations('issue.comments');
+  const deleteComment = useDeleteComment();
   const relativeTime = useRelativeTime();
   const author = item.actorName ?? t('unknownAuthor');
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
     // The id is the scroll target of the last-comment bubble.
@@ -34,24 +50,76 @@ export default function CommentItem({
         <span className="truncate text-sm font-medium">{author}</span>
         <span className="shrink-0 text-xs text-muted-foreground">
           · {relativeTime(item.createdAt)}
+          {item.editedAt && ` · ${t('edited')}`}
         </span>
-        {onReply && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onReply}
-            className="ms-auto h-6 shrink-0 px-2 text-xs text-muted-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover/comment:opacity-100"
-          >
-            <Reply className="size-3.5" />
-            {t('reply')}
-          </Button>
+        {(onReply || canEdit || canDelete) && (
+          <div className="ms-auto flex shrink-0 items-center gap-0.5 focus-within:opacity-100 sm:opacity-0 sm:group-hover/comment:opacity-100">
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(true)}
+                className="h-6 px-2 text-xs text-muted-foreground"
+                title={t('edit')}
+              >
+                <Pencil className="size-3.5" />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirmingDelete(true)}
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                title={t('deleteComment')}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            )}
+            {onReply && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onReply}
+                className="h-6 px-2 text-xs text-muted-foreground"
+              >
+                <Reply className="size-3.5" />
+                {t('reply')}
+              </Button>
+            )}
+          </div>
         )}
       </div>
-      <MarkdownEditor
-        className="mt-1 ps-7 text-sm text-foreground/85"
-        defaultValue={item.body ?? ''}
-        editable={false}
-      />
+      {editing && composer ? (
+        <div className="mt-1 ps-7">
+          <CommentComposer
+            {...composer}
+            commentId={item.id}
+            initialBody={item.body ?? ''}
+            onClose={() => setEditing(false)}
+          />
+        </div>
+      ) : (
+        <MarkdownEditor
+          className="mt-1 ps-7 text-sm text-foreground/85"
+          defaultValue={item.body ?? ''}
+          editable={false}
+        />
+      )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={t('deleteCommentTitle')}
+          confirmLabel={t('deleteComment')}
+          onConfirm={async () => {
+            await deleteComment.mutateAsync({ issueId: item.issueId, commentId: item.id });
+            setConfirmingDelete(false);
+          }}
+          onClose={() => setConfirmingDelete(false)}
+        >
+          <p className="text-sm text-muted-foreground">{t('deleteCommentConfirmation')}</p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
