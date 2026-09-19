@@ -14,7 +14,7 @@ import {
   teamRole,
   user,
 } from '@repo/db';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { HttpError, iso } from '#shared/lib';
 import { getLimits } from '#shared/limits';
 import { defaultMemberPermissions, fullPermissions, type Permissions } from '#shared/permissions';
@@ -103,6 +103,20 @@ export interface TeamProjectRow {
   owners: { userId: string; name: string; image: string | null }[];
   isMember: boolean;
   createdAt: string;
+}
+
+// One page of the team's projects, with how many the caller reads in all.
+export interface TeamProjectPage {
+  items: TeamProjectRow[];
+  total: number;
+}
+
+// A project as a picker reads it, plus the MCP reach the team's switches set.
+export interface TeamProjectOption {
+  id: number;
+  key: string;
+  name: string;
+  mcpEnabled: boolean;
 }
 
 // One member of a project the team owns. The access their membership resolves to is
@@ -445,14 +459,36 @@ export async function listTeamMembers(
   };
 }
 
-// The projects the team owns, with the caller's own access to each. Owners and
-// managers see every project of the team; everyone else only the ones they joined.
+// The projects of the team a caller reads: owners and managers see every one of them,
+// everyone else only the ones they joined. The search matches the key or the name.
+function visibleTeamProjects(
+  teamId: number,
+  userId: string,
+  standing: TeamStanding,
+  search?: string,
+) {
+  const term = search?.trim();
+  return and(
+    eq(project.teamId, teamId),
+    runsTeam(standing)
+      ? undefined
+      : sql`exists (select 1 from ${projectMember} where ${projectMember.projectId} = ${project.id}
+      and ${projectMember.userId} = ${userId})`,
+    term ? or(ilike(project.key, `%${term}%`), ilike(project.name, `%${term}%`)) : undefined,
+  );
+}
+
+// One page of the projects the team owns, with the caller's own access to each. The
+// window runs in the database, so a team with many projects is never loaded whole;
+// the owners are read for the page, not for every project.
 export async function listTeamProjects(
   teamId: number,
   userId: string,
   standing: TeamStanding,
-): Promise<TeamProjectRow[]> {
-  const [projects, projectOwners] = await Promise.all([
+  options: { search?: string; limit: number; offset: number },
+): Promise<TeamProjectPage> {
+  const where = visibleTeamProjects(teamId, userId, standing, options.search);
+  const [projects, counted] = await Promise.all([
     db
       .select({
         id: project.id,
@@ -466,22 +502,38 @@ export async function listTeamProjects(
       })
       .from(project)
       .leftJoin(projectMember, eq(projectMember.projectId, project.id))
-      .where(eq(project.teamId, teamId))
+      .where(where)
       .groupBy(project.id)
-      .orderBy(project.key),
+      .orderBy(project.key)
+      .limit(options.limit)
+      .offset(options.offset),
     db
-      .select({
-        projectId: projectMember.projectId,
-        userId: user.id,
-        name: user.name,
-        image: user.image,
-      })
-      .from(projectMember)
-      .innerJoin(project, eq(project.id, projectMember.projectId))
-      .innerJoin(user, eq(user.id, projectMember.userId))
-      .where(and(eq(project.teamId, teamId), eq(projectMember.role, 'owner')))
-      .orderBy(user.name),
+      .select({ count: sql<number>`count(*)::int` })
+      .from(project)
+      .where(where),
   ]);
+
+  const projectOwners = projects.length
+    ? await db
+        .select({
+          projectId: projectMember.projectId,
+          userId: user.id,
+          name: user.name,
+          image: user.image,
+        })
+        .from(projectMember)
+        .innerJoin(user, eq(user.id, projectMember.userId))
+        .where(
+          and(
+            inArray(
+              projectMember.projectId,
+              projects.map((p) => p.id),
+            ),
+            eq(projectMember.role, 'owner'),
+          ),
+        )
+        .orderBy(user.name)
+    : [];
 
   const ownersByProject = new Map<number, TeamProjectRow['owners']>();
   for (const o of projectOwners) {
@@ -490,19 +542,39 @@ export async function listTeamProjects(
     ownersByProject.set(o.projectId, owners);
   }
 
-  const visible = runsTeam(standing) ? projects : projects.filter((p) => p.isMember);
+  return {
+    items: projects.map((p) => ({
+      id: p.id,
+      key: p.key,
+      name: p.name,
+      description: p.description,
+      mcpEnabled: p.mcpEnabled,
+      memberCount: p.memberCount,
+      owners: ownersByProject.get(p.id) ?? [],
+      isMember: p.isMember ?? false,
+      createdAt: iso(p.createdAt),
+    })),
+    total: counted[0]?.count ?? 0,
+  };
+}
 
-  return visible.map((p) => ({
-    id: p.id,
-    key: p.key,
-    name: p.name,
-    description: p.description,
-    mcpEnabled: p.mcpEnabled,
-    memberCount: p.memberCount,
-    owners: ownersByProject.get(p.id) ?? [],
-    isMember: p.isMember ?? false,
-    createdAt: iso(p.createdAt),
-  }));
+// Every project the caller reads, as id, key, name and MCP reach: the picker on an
+// agent and the team's MCP switches, which need them all rather than a page.
+export async function listTeamProjectOptions(
+  teamId: number,
+  userId: string,
+  standing: TeamStanding,
+): Promise<TeamProjectOption[]> {
+  return db
+    .select({
+      id: project.id,
+      key: project.key,
+      name: project.name,
+      mcpEnabled: project.mcpEnabled,
+    })
+    .from(project)
+    .where(visibleTeamProjects(teamId, userId, standing))
+    .orderBy(project.key);
 }
 
 // When the project's issue feed last moved. Read as the newest row rather than a
@@ -677,6 +749,18 @@ export async function renameTeam(teamId: number, name: string, userId: string): 
   return row;
 }
 
+async function membershipInTransaction(
+  tx: Transaction,
+  teamId: number,
+  userId: string,
+): Promise<TeamStanding | null> {
+  const [row] = await tx
+    .select({ role: teamMember.role })
+    .from(teamMember)
+    .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
+  return row ? (row.role as TeamStanding) : null;
+}
+
 // Changes what a member ranks as in the team. An agent's standing comes from its
 // agent settings, and nobody sets their own rank. Only an owner grants the owner rank
 // or changes what another owner holds, which is also what keeps the last owner in
@@ -687,19 +771,24 @@ export async function setTeamMemberRole(
   userId: string,
   role: TeamRole,
 ): Promise<void> {
-  if (userId === actor.userId) throw new HttpError(409, 'You cannot change your own rank');
-
-  const current = await getTeamMembership(teamId, userId);
-  if (!current) throw new HttpError(404, 'Member not found');
-  if (current === 'agent')
-    throw new HttpError(409, "An agent's rank comes from its agent settings");
-  if (actor.role !== 'owner' && (role === 'owner' || current === 'owner'))
-    throw new HttpError(403, 'Only a team owner can grant or take the owner rank');
-
-  await db
-    .update(teamMember)
-    .set({ role })
-    .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
+  await db.transaction(async (tx) => {
+    await tx.select({ id: team.id }).from(team).where(eq(team.id, teamId)).for('update');
+    const actorRole = await membershipInTransaction(tx, teamId, actor.userId);
+    if (!runsTeam(actorRole))
+      throw new HttpError(403, 'Only a team owner or manager can change ranks');
+    if (userId === actor.userId) throw new HttpError(409, 'You cannot change your own rank');
+    const current = await membershipInTransaction(tx, teamId, userId);
+    if (!current) throw new HttpError(404, 'Member not found');
+    if (current === 'agent')
+      throw new HttpError(409, "An agent's rank comes from its agent settings");
+    if (actorRole !== 'owner' && (role === 'owner' || current === 'owner')) {
+      throw new HttpError(403, 'Only a team owner can grant or take the owner rank');
+    }
+    await tx
+      .update(teamMember)
+      .set({ role })
+      .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
+  });
 }
 
 // Refuses to end a membership that would leave a project of the team without an owner:
@@ -707,11 +796,12 @@ export async function setTeamMemberRole(
 // routes refuse such a removal for the same reason. The other owner has to be named
 // first, from the project's member list.
 async function assertLeavesNoProjectOwnerless(
+  tx: Transaction,
   teamId: number,
   userId: string,
   subject: 'You' | 'They',
 ): Promise<void> {
-  const soleOwned = await db
+  const soleOwned = await tx
     .select({ key: project.key })
     .from(projectMember)
     .innerJoin(project, eq(project.id, projectMember.projectId))
@@ -736,38 +826,40 @@ async function assertLeavesNoProjectOwnerless(
 // Ends a team membership: the member leaves the team and every project it owns. What
 // they already did in those projects stays — issues keep their assignee and their
 // author.
-async function dropTeamMembership(teamId: number, userId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const teamProjects = tx
-      .select({ id: project.id })
-      .from(project)
-      .where(eq(project.teamId, teamId));
-    await tx
-      .delete(projectMember)
-      .where(and(eq(projectMember.userId, userId), inArray(projectMember.projectId, teamProjects)));
-    // A column cannot keep assigning issues to someone who no longer belongs to the
-    // project, the same rule remove_member follows.
-    await tx
-      .update(projectColumn)
-      .set({ autoAssignUserId: null })
-      .where(
-        and(
-          eq(projectColumn.autoAssignUserId, userId),
-          inArray(projectColumn.projectId, teamProjects),
-        ),
-      );
-    await tx
-      .delete(teamMember)
-      .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
-  });
+async function dropTeamMembership(tx: Transaction, teamId: number, userId: string): Promise<void> {
+  const teamProjects = tx
+    .select({ id: project.id })
+    .from(project)
+    .where(eq(project.teamId, teamId));
+  await tx
+    .delete(projectMember)
+    .where(and(eq(projectMember.userId, userId), inArray(projectMember.projectId, teamProjects)));
+  // A column cannot keep assigning issues to someone who no longer belongs to the
+  // project, the same rule remove_member follows.
+  await tx
+    .update(projectColumn)
+    .set({ autoAssignUserId: null })
+    .where(
+      and(
+        eq(projectColumn.autoAssignUserId, userId),
+        inArray(projectColumn.projectId, teamProjects),
+      ),
+    );
+  await tx
+    .delete(teamMember)
+    .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
 }
 
 // A membership the SCIM group reconciliation owns ends at the identity provider: the
 // next sync would put it back, and dropping it here would take the project memberships
 // that same sync granted with it. Only the plain member rows it writes — a rank raised
 // by hand is the team's, and the reconciliation leaves those alone too.
-async function assertNotProvisioned(teamId: number, userId: string): Promise<void> {
-  const [row] = await db
+async function assertNotProvisioned(
+  tx: Transaction,
+  teamId: number,
+  userId: string,
+): Promise<void> {
+  const [row] = await tx
     .select({ role: teamMember.role, source: teamMember.source })
     .from(teamMember)
     .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
@@ -784,15 +876,20 @@ export async function removeTeamMember(
   actorId: string,
   userId: string,
 ): Promise<void> {
-  if (userId === actorId) throw new HttpError(409, 'Leave the team instead of removing yourself');
-
-  const current = await getTeamMembership(teamId, userId);
-  if (!current) throw new HttpError(404, 'Member not found');
-  if (current === 'agent') throw new HttpError(409, 'An agent is removed with its agent settings');
-  await assertNotProvisioned(teamId, userId);
-  await assertLeavesNoProjectOwnerless(teamId, userId, 'They');
-
-  await dropTeamMembership(teamId, userId);
+  await db.transaction(async (tx) => {
+    await tx.select({ id: team.id }).from(team).where(eq(team.id, teamId)).for('update');
+    if ((await membershipInTransaction(tx, teamId, actorId)) !== 'owner') {
+      throw new HttpError(403, 'Only a team owner can remove members');
+    }
+    if (userId === actorId) throw new HttpError(409, 'Leave the team instead of removing yourself');
+    const current = await membershipInTransaction(tx, teamId, userId);
+    if (!current) throw new HttpError(404, 'Member not found');
+    if (current === 'agent')
+      throw new HttpError(409, 'An agent is removed with its agent settings');
+    await assertNotProvisioned(tx, teamId, userId);
+    await assertLeavesNoProjectOwnerless(tx, teamId, userId, 'They');
+    await dropTeamMembership(tx, teamId, userId);
+  });
 }
 
 // Drops the caller's own membership, with their access to the team's projects. The
@@ -800,16 +897,21 @@ export async function removeTeamMember(
 // owner has nobody who can rename it. Neither can the only owner of one of its
 // projects, for the same reason one project down. An agent cannot either: its standing
 // is written with the agent and nothing puts it back, so leaving would strand it.
-export async function leaveTeam(teamId: number, userId: string, role: TeamStanding): Promise<void> {
-  if (role === 'agent') throw new HttpError(409, 'An agent is removed with its agent settings');
-  if (role === 'owner') {
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(teamMember)
-      .where(and(eq(teamMember.teamId, teamId), eq(teamMember.role, 'owner')));
-    if (count === 1) throw new HttpError(409, 'The last owner cannot leave the team');
-  }
-  await assertNotProvisioned(teamId, userId);
-  await assertLeavesNoProjectOwnerless(teamId, userId, 'You');
-  await dropTeamMembership(teamId, userId);
+export async function leaveTeam(teamId: number, userId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.select({ id: team.id }).from(team).where(eq(team.id, teamId)).for('update');
+    const role = await membershipInTransaction(tx, teamId, userId);
+    if (!role) throw new HttpError(404, 'Member not found');
+    if (role === 'agent') throw new HttpError(409, 'An agent is removed with its agent settings');
+    if (role === 'owner') {
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(teamMember)
+        .where(and(eq(teamMember.teamId, teamId), eq(teamMember.role, 'owner')));
+      if (count === 1) throw new HttpError(409, 'The last owner cannot leave the team');
+    }
+    await assertNotProvisioned(tx, teamId, userId);
+    await assertLeavesNoProjectOwnerless(tx, teamId, userId, 'You');
+    await dropTeamMembership(tx, teamId, userId);
+  });
 }

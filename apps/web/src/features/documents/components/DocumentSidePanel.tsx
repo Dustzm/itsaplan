@@ -18,7 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ProjectDocument } from '@/lib/api';
+import type { ProjectDocument } from '@/lib/api/endpoints/documents';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -73,9 +73,16 @@ export default function DocumentSidePanel({
 
   useEffect(() => {
     if (!editor) return;
-    const refreshOutline = () => setOutlineRevision((value) => value + 1);
+    let timer: ReturnType<typeof setTimeout>;
+    const refreshOutline = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (transaction.docChanged) {
+        clearTimeout(timer);
+        timer = setTimeout(() => setOutlineRevision((value) => value + 1), 300);
+      }
+    };
     editor.on('transaction', refreshOutline);
     return () => {
+      clearTimeout(timer);
       editor.off('transaction', refreshOutline);
     };
   }, [editor]);

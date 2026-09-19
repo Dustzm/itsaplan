@@ -7,9 +7,15 @@ export const qk = {
   // One team: its counters and what the caller may do with what it holds.
   team: (teamId: number) => ['team', teamId] as const,
   // The members of a team and the projects it owns, each read by its own section. A
-  // member page is scoped by the search term and the window it was read with.
+  // page is scoped by the search term and the window it was read with.
   teamMembers: (teamId: number, params: unknown) => ['team', teamId, 'members', params] as const,
-  teamProjects: (teamId: number) => ['team', teamId, 'projects'] as const,
+  teamProjects: (teamId: number, params: unknown) => ['team', teamId, 'projects', params] as const,
+  // Every project of the team, for the pickers and the MCP switches that act on all
+  // of them.
+  teamProjectOptions: (teamId: number) => ['team', teamId, 'projects', 'options'] as const,
+  // Every page of a team's projects and its options list, for a write that changes
+  // what they show.
+  anyTeamProjects: (teamId: number) => ['team', teamId, 'projects'] as const,
   // One project the team owns, loaded when its row is opened, and one page of its
   // members (the search term and the window scope the entry).
   teamProject: (teamId: number, projectId: number) =>
@@ -60,6 +66,8 @@ export const qk = {
     ['documents', projectKey, 'document', documentId] as const,
   documentRevisions: (projectKey: string, documentId: number) =>
     ['documents', projectKey, 'document', documentId, 'revisions'] as const,
+  documentComments: (projectKey: string, documentId: number) =>
+    ['documents', projectKey, 'document', documentId, 'comments'] as const,
   documentAssets: (projectKey: string, documentId: number) =>
     ['documents', projectKey, 'document', documentId, 'assets'] as const,
   documentIssueLinks: (projectKey: string, documentId: number) =>
@@ -99,7 +107,9 @@ export const qk = {
   anyTeamInvites: ['teamInvites'] as const,
   // The roles a team offers, which is what every project of it assigns from. The
   // permission catalog is app-static, so it is scoped to no team.
-  teamRoles: (teamId: number) => ['teamRoles', teamId] as const,
+  teamRoles: (teamId: number, params: unknown) => ['teamRoles', teamId, params] as const,
+  teamRoleOptions: (teamId: number) => ['teamRoles', teamId, 'options'] as const,
+  anyTeamRoles: (teamId: number) => ['teamRoles', teamId] as const,
   roleUsage: (teamId: number, roleId: number) => ['roleUsage', teamId, roleId] as const,
   anyRoleUsage: ['roleUsage'] as const,
   permissionCatalog: ['permissionCatalog'] as const,
@@ -270,4 +280,12 @@ export const qk = {
   instanceProjects: (filters: unknown) => ['instanceProjects', filters] as const,
   instanceProjectOptions: ['instanceProjectOptions'] as const,
   instanceProject: (projectId: number) => ['instanceProject', projectId] as const,
+  // The instance team directory: the list (scoped by the active filters) and one team
+  // with its projects and members.
+  instanceTeams: (filters: unknown) => ['instanceTeams', filters] as const,
+  instanceTeam: (teamId: number) => ['instanceTeam', teamId] as const,
+  instanceTeamProjects: (teamId: number, filters: unknown) =>
+    ['instanceTeamProjects', teamId, filters] as const,
+  instanceTeamMembers: (teamId: number, filters: unknown) =>
+    ['instanceTeamMembers', teamId, filters] as const,
 };

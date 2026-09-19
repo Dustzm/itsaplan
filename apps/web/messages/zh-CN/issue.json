@@ -220,7 +220,12 @@
     "cancel": "取消",
     "toSend": "发送",
     "unknownAuthor": "未知用户",
-    "goToLastComment": "跳转到最新评论"
+    "goToLastComment": "跳转到最新评论",
+    "edit": "编辑",
+    "edited": "已编辑",
+    "deleteComment": "删除评论",
+    "deleteCommentTitle": "删除此评论？",
+    "deleteCommentConfirmation": "该评论及其所有回复将被永久删除。"
   },
   "stats": {
     "title": "统计",
@@ -318,7 +323,9 @@
     "pullRequestOpened": "打开了拉取请求 <v>{pr}</v>",
     "worklogAdded": "记录了 <v>{date}</v> 的 <v>{time}</v>",
     "worklogChanged": "将 <v>{fromDate}</v> 的 <v>{from}</v> 改为 <v>{date}</v> 的 <v>{to}</v>",
-    "worklogRemoved": "删除了 <v>{date}</v> 的 <v>{time}</v>"
+    "worklogRemoved": "删除了 <v>{date}</v> 的 <v>{time}</v>",
+    "commentEdited": "编辑了一条评论",
+    "commentDeleted": "删除了一条评论"
   },
   "development": {
     "title": "开发",
@@ -380,9 +387,9 @@
     }
   },
   "documents": {
-    "title": "Docs",
-    "add": "关联 Docs 页面",
-    "empty": "暂无关联的 Docs 页面。",
+    "title": "文档",
+    "add": "关联文档",
+    "empty": "暂无关联文档。",
     "loadFailed": "无法加载关联页面。点击重试。",
     "remove": "取消关联 {title}",
     "untitled": "无标题"

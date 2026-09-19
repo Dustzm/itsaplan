@@ -220,7 +220,12 @@
     "cancel": "إلغاء",
     "toSend": "للإرسال",
     "unknownAuthor": "غير معروف",
-    "goToLastComment": "الانتقال إلى آخر تعليق"
+    "goToLastComment": "الانتقال إلى آخر تعليق",
+    "edit": "تعديل",
+    "edited": "تم التعديل",
+    "deleteComment": "حذف التعليق",
+    "deleteCommentTitle": "حذف هذا التعليق؟",
+    "deleteCommentConfirmation": "سيتم حذف التعليق وجميع ردوده نهائيًا."
   },
   "stats": {
     "title": "الإحصاءات",
@@ -318,7 +323,9 @@
     "pullRequestOpened": "فتح طلب السحب <v>{pr}</v>",
     "worklogAdded": "سجّل <v>{time}</v> ليوم <v>{date}</v>",
     "worklogChanged": "غيّر التسجيل من <v>{from}</v> ليوم <v>{fromDate}</v> إلى <v>{to}</v> ليوم <v>{date}</v>",
-    "worklogRemoved": "حذف تسجيل <v>{time}</v> ليوم <v>{date}</v>"
+    "worklogRemoved": "حذف تسجيل <v>{time}</v> ليوم <v>{date}</v>",
+    "commentEdited": "عدّل تعليقًا",
+    "commentDeleted": "حذف تعليقًا"
   },
   "development": {
     "title": "التطوير",
@@ -380,9 +387,9 @@
     }
   },
   "documents": {
-    "title": "Docs",
-    "add": "ربط صفحة Docs",
-    "empty": "لا توجد صفحات Docs مرتبطة بعد.",
+    "title": "المستندات",
+    "add": "ربط مستند",
+    "empty": "لا توجد مستندات مرتبطة بعد.",
     "loadFailed": "تعذر تحميل الصفحات المرتبطة. انقر لإعادة المحاولة.",
     "remove": "إلغاء ربط {title}",
     "untitled": "بلا عنوان"

@@ -1,5 +1,6 @@
 import { useDraggable } from '@dnd-kit/core';
-import { type BoardIssue, type ProjectDetail, type Issue } from '@/lib/api';
+import type { ProjectDetail } from '@/lib/api/endpoints/projects';
+import type { BoardIssue, Issue } from '@/lib/api/endpoints/issues';
 import { type Maps } from '@/utils/project';
 import { useIsPhone } from '@/hooks/useIsPhone';
 import { cn } from '@/lib/utils';
@@ -8,6 +9,7 @@ import { type TimelineDragMode } from '../../hooks/useTimelineDrag';
 import { ROW_H, type Span } from '../../utils/timeline';
 import { IssueIdentifier } from '../shared/IssueIdentifier';
 import { SubtaskProgress } from '../shared/SubtaskProgress';
+import { useIssueSubtaskFold } from '../../context/useSubtasks';
 import { TimelineBar } from './TimelineBar';
 
 // One issue row: the sticky label on the left and its bar on the day track.
@@ -54,6 +56,7 @@ export function TimelineIssueRow({
   // Drag is disabled on phones so a touch scrolls the timeline instead of picking
   // up a row (see the `sm:touch-none` below).
   const isPhone = useIsPhone();
+  const fold = useIssueSubtaskFold();
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: issue.id,
     disabled: isPhone || readOnly,
@@ -86,7 +89,7 @@ export function TimelineIssueRow({
             onOpenParent={onOpen}
           />
           <span className="min-w-0 flex-1 truncate text-sm text-foreground">{issue.title}</span>
-          <SubtaskProgress issueId={issue.id} maps={maps} />
+          <SubtaskProgress issueId={issue.id} maps={maps} open={fold.open} onToggle={fold.toggle} />
         </div>
       </IssueContextMenu>
       <div className="relative" style={{ width: trackWidth, ...dayLines }}>

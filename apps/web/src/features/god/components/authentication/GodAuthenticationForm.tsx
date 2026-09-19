@@ -2,7 +2,7 @@
 
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
-import type { InstanceAuthSettings } from '@/lib/api';
+import type { InstanceAuthSettings } from '@/lib/api/endpoints/god';
 import SettingsCard from '@/components/common/page/SettingsCard';
 import SettingsSection from '@/components/common/page/SettingsSection';
 import SettingsRow from '@/components/common/page/SettingsRow';
@@ -94,6 +94,18 @@ export default function GodAuthenticationForm({
                   checked={policy.magicLink}
                   disabled={policy.saving || needsProvider}
                   onCheckedChange={policy.setMagicLink}
+                />
+              }
+            />
+            <SettingsRow
+              title={t('trustProviderEmails')}
+              description={t('trustProviderEmailsHint')}
+              note={needsSso ? t('needsSso') : undefined}
+              control={
+                <Switch
+                  checked={policy.trustProviderEmails}
+                  disabled={policy.saving || needsSso}
+                  onCheckedChange={policy.setTrustProviderEmails}
                 />
               }
             />

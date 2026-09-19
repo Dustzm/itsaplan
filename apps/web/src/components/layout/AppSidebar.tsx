@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Braces, Server, Shield } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import type { Project } from '@/lib/api';
+import type { Project } from '@/lib/api/endpoints/projects';
 import { useSession } from '@/lib/auth-client';
 import { apiDocsPath, godPath, mcpServerPath } from '@/utils/paths';
 import { GOD_SECTIONS } from '@/utils/godSections';
@@ -34,12 +34,10 @@ export default function AppSidebar({
   projects,
   currentProjectKey,
   onSelectProject,
-  onNewTeam,
 }: {
   projects: Project[];
   currentProjectKey: string | null;
   onSelectProject: (key: string) => void;
-  onNewTeam: () => void;
 }) {
   const t = useTranslations('nav');
   const pathname = usePathname();
@@ -71,7 +69,6 @@ export default function AppSidebar({
           projects={projects}
           currentProjectKey={currentProjectKey}
           onSelectProject={onSelectProject}
-          onNewTeam={onNewTeam}
         />
       </SidebarHeader>
 
