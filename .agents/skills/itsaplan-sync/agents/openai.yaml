@@ -1,0 +1,6 @@
+interface:
+  display_name: 'Itsaplan Sync'
+  short_description: 'Sync upstream updates into the custom branch'
+  default_prompt: 'Use $itsaplan-sync to sync upstream main into custom through a reviewed pull request.'
+policy:
+  allow_implicit_invocation: true
