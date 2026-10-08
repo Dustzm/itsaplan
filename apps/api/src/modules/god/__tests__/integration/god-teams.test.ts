@@ -9,7 +9,7 @@ import { addUser, createAgentUser, setup, type Actor } from '../helpers';
 
 const PAGE = { page: 1, pageSize: 50 };
 
-// Every account is given a team at registration, so the actor's own team is its first.
+// signUpTestUser gives every account a team, so the actor's own team is its first.
 async function ownTeamId(actor: Actor): Promise<number> {
   const teams = await actor.api.teams.get();
   return teams.data![0]!.id;
@@ -35,14 +35,13 @@ describe('god teams', () => {
     it('lists every team on the instance, including ones the owner is not in', async () => {
       const { god } = await setup();
       const alice = await addUser({ email: 'alice@example.com' });
-      await alice.api.teams.post({ name: 'Alice Only' });
+      const aliceTeamId = await ownTeamId(alice);
 
       const res = await god.api.god.teams.get({ query: PAGE });
 
       expect(res.status).toBe(200);
-      // The god's own team, Alice's registration team, and the one she created.
-      expect(res.data?.total).toBe(3);
-      expect(res.data?.items.map((one) => one.name)).toContain('Alice Only');
+      expect(res.data?.total).toBe(2);
+      expect(res.data?.items.map((one) => one.id)).toContain(aliceTeamId);
     });
 
     it('counts what a team holds', async () => {
@@ -87,8 +86,8 @@ describe('god teams', () => {
 
     it('matches the search term against the name', async () => {
       const { god } = await setup();
-      await god.api.teams.post({ name: 'Marketing' });
-      await god.api.teams.post({ name: 'Engineering' });
+      await god.api.teams.post({ name: 'Marketing', slug: 'marketing' });
+      await god.api.teams.post({ name: 'Engineering', slug: 'engineering' });
 
       const match = await god.api.god.teams.get({ query: { ...PAGE, search: 'market' } });
       const noMatch = await god.api.god.teams.get({ query: { ...PAGE, search: 'nothing' } });
@@ -101,13 +100,13 @@ describe('god teams', () => {
 
     it('pages with limit and offset while the total stays the full match count', async () => {
       const { god } = await setup();
-      await god.api.teams.post({ name: 'One' });
-      await god.api.teams.post({ name: 'Two' });
+      await god.api.teams.post({ name: 'One', slug: 'one' });
+      await god.api.teams.post({ name: 'Two', slug: 'two' });
 
       const first = await god.api.god.teams.get({ query: { page: 1, pageSize: 2 } });
       const second = await god.api.god.teams.get({ query: { page: 2, pageSize: 2 } });
 
-      // The two created teams plus the one the god account registered with.
+      // The two created teams plus the one signUpTestUser gave the god account.
       expect(first.data?.items).toHaveLength(2);
       expect(second.data?.items).toHaveLength(1);
       expect(first.data?.total).toBe(3);

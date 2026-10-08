@@ -5,6 +5,9 @@
   "openAsPage": "Open as page",
   "titlePlaceholder": "Issue title",
   "noActivity": "No activity yet.",
+  "noComments": "No comments yet.",
+  "noHistory": "No changes yet.",
+  "noWorklog": "No time logged yet.",
   "noActivityInStretch": "No activity in this stretch.",
   "activityLoadFailed": "Could not load the activity.",
   "fields": {
@@ -47,6 +50,12 @@
     "dueDate": "Due date",
     "clearDueDate": "Clear due date",
     "labels": "Labels",
+    "copyId": "Copy ID",
+    "copyShortLink": "Copy short link",
+    "copyFullUrl": "Copy full URL",
+    "copyTitle": "Copy title",
+    "copyDescription": "Copy description",
+    "copyBranch": "Copy branch name",
     "copyPrompt": "Copy Prompt",
     "restore": "Restore",
     "archive": "Archive",
@@ -54,6 +63,7 @@
     "noDelegate": "No delegate",
     "noInitiative": "No initiative",
     "noCycle": "No cycle",
+    "copyFailed": "Could not copy to clipboard",
     "promptCopied": "Prompt copied to clipboard"
   },
   "commands": {
@@ -98,7 +108,8 @@
     "restore": "Restore issue",
     "archive": "Archive issue",
     "delete": "Delete issue",
-    "shareIssue": "Share issue"
+    "shareIssue": "Share issue",
+    "move": "Move to another project"
   },
   "actions": {
     "deleteTitle": "Delete issue",
@@ -107,7 +118,16 @@
     "cannotBeUndone": "This cannot be undone.",
     "deleteDescription": "Delete {issue}? This removes the issue, its comments, activity and attachments.",
     "archiveDescription": "Archive {issue}? It leaves the board and can be restored later.",
-    "applyDescription": "Apply <v>{action}</v> to this issue?"
+    "applyDescription": "Apply <v>{action}</v> to this issue?",
+    "moveTitle": "Move issue",
+    "move": "Move",
+    "moveDescription": "Move {issue} to another project of this team. It gets a new number there, and the old link opens it.",
+    "moveSubtasks": "{count, plural, one {Its subtask moves with it.} other {Its # subtasks move with it.}}",
+    "moveProject": "Project",
+    "moveChooseProject": "Choose a project",
+    "moveColumn": "Status",
+    "moveColumnMatching": "Matching status",
+    "moveCarriedOver": "Type, labels and custom fields are kept where the target project has one of the same name. Cycle, initiative and links to issues in this project are removed."
   },
   "create": {
     "title": "New issue",
@@ -140,6 +160,8 @@
     "download": "Download",
     "downloadFile": "Download {name}",
     "deleteFile": "Delete {name}",
+    "deleteTitle": "Delete attachment",
+    "deleteConfirmation": "Delete {name}? It is also removed from the description wherever it is embedded. This cannot be undone.",
     "preview": "Preview {name}",
     "remove": "Remove {name}",
     "removeShort": "Remove",
@@ -196,7 +218,11 @@
     "detachFromParent": "Detach from {parent}",
     "subtaskOf": "Subtask of {issue}",
     "existingIssue": "Existing issue",
-    "searchPrompt": "Search issues to add as a subtask…"
+    "searchPrompt": "Search issues to add as a subtask…",
+    "filter": "Filter by state",
+    "hiding": "Hiding {states}",
+    "clearFilter": "Clear filter",
+    "allHidden": "All subtasks are hidden by the filter."
   },
   "subtaskDisposal": {
     "intro": "{issues, plural, one {This issue has} other {These issues have}} {count, plural, one {# subtask} other {# subtasks}}.",
@@ -325,7 +351,8 @@
     "worklogChanged": "changed the logged <v>{from}</v> on <v>{fromDate}</v> to <v>{to}</v> on <v>{date}</v>",
     "worklogRemoved": "removed the <v>{time}</v> logged on <v>{date}</v>",
     "commentEdited": "edited a comment",
-    "commentDeleted": "deleted a comment"
+    "commentDeleted": "deleted a comment",
+    "issueMoved": "moved this issue from <v>{from}</v> to <v>{to}</v>"
   },
   "development": {
     "title": "Development",
@@ -396,8 +423,16 @@
   },
   "archived": "Archived",
   "activityHeading": "Activity",
-  "feedFlat": "Flat",
-  "feedGrouped": "Grouped",
+  "feedTabAll": "All",
+  "feedTabComments": "Comments",
+  "feedTabHistory": "History",
+  "feedTabWorklog": "Work log",
+  "feedStatus": "Status",
+  "feedGroupByStatus": "Group by status",
+  "feedNewest": "Newest",
+  "feedOldest": "Oldest",
+  "feedChangeOrder": "Change order",
+  "feedRunToggle": "Show similar changes",
   "shareUnavailable": "This shared issue is not available. The link may have been revoked.",
   "fieldSelects": {
     "changeState": "Change state…",

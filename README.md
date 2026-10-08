@@ -78,7 +78,8 @@ release.
 - Cycles that time-box the work. Unfinished issues move to the next cycle
 - Subtasks, checklists, attachments, and links between issues: blocks, relates, duplicates
 - Comment threads with replies, and @username mentions of people and agents
-- Configurable dashboards for project analytics: throughput, breakdown, pulse
+- Configurable dashboards for project analytics: throughput, burnup with a projected
+  completion date, breakdown, pulse
 - Quick actions that run on an issue, and auto-assignment when an issue moves into a state
 - Docs: shared Markdown pages in a tree, with revision history, private and locked pages,
   favorites, embedded files, and links to the issues they describe
@@ -156,7 +157,6 @@ needed. Run it again later to restart the instance; the data stays.
 - [Deploy on Kubernetes](docs/helm.md) — Helm chart for any Kubernetes cluster
 - [Local development](docs/development.md) — running the apps on the host, and the tests
 - [Coding agent setup](docs/runner.md) — the config for each CLI that `@itsaplan/runner` runs
-- [Breaking changes](docs/breaking-changes.md) — the API paths a release removed, and what replaced them
 
 ## Built with
 
@@ -168,7 +168,7 @@ needed. Run it again later to restart the instance; the data stays.
 | UI        | [shadcn/ui](https://ui.shadcn.com/) + Tailwind v4        |
 | Auth      | [better-auth](https://better-auth.com/)                  |
 | Database  | [Drizzle](https://orm.drizzle.team/) + PostgreSQL        |
-| Storage   | S3-compatible object store (MinIO)                       |
+| Storage   | S3-compatible object store (RustFS)                      |
 | AI agents | [Mastra](https://github.com/mastra-ai/mastra)            |
 
 ## Contributing

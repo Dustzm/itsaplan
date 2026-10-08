@@ -25,7 +25,7 @@
     },
     "general": {
       "label": "Général",
-      "description": "Les valeurs par défaut des nouveaux projets."
+      "description": "Les espaces de travail personnels et les valeurs par défaut des nouveaux projets."
     },
     "authentication": {
       "label": "Authentification",
@@ -100,6 +100,10 @@
     "git": {
       "label": "Dépôts",
       "description": "Fermez les tickets quand leurs pull requests sont fusionnées sur GitHub, GitLab, Gitea, Forgejo ou Bitbucket."
+    },
+    "import-export": {
+      "label": "Import/Export",
+      "description": "Importez les tickets, commentaires et étiquettes depuis une instance Plane auto-hébergée, ou exportez les données du projet au format JSON."
     },
     "ai-agents": {
       "label": "Agents",

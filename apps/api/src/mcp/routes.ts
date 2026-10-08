@@ -124,8 +124,7 @@ export const mcpToolRoutes = new Elysia({ name: 'mcp-tools', detail: { tags: ['S
       const filename = safeAttachmentFilename(body.filename);
       await assertAttachmentUploadAllowed(project.id, bytes.length, body.contentType);
       const asset = await saveDocumentAsset({
-        projectId: project.id,
-        projectKey: project.key,
+        project,
         documentId: params.documentId,
         userId,
         filename,

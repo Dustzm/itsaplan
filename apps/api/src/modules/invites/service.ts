@@ -1,13 +1,10 @@
 import { db, teamInvite, teamMember, projectMember, teamRole, team, project, user } from '@repo/db';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { HttpError, iso, pgErrorCode } from '#shared/lib';
+import { getProjectAccess, getTeamAccess } from '#shared/access';
+import { teamRef } from '#modules/teams/ref';
 import { getMembership, type MemberRole } from '#modules/members/service';
-import {
-  assertTeamSeatFree,
-  getTeamMembership,
-  runsTeam,
-  type TeamRole,
-} from '#modules/teams/service';
+import { assertSeatFree, getTeamMembership, runsTeam, type TeamRole } from '#modules/teams/service';
 
 // Data access for invites. An invite is a token-addressed grant of membership in a
 // team, and — when it names a project — in that project too. Creating one requires
@@ -54,10 +51,12 @@ export interface InviteRow {
 }
 
 // Row shown to the invitee opening the link, with enough context to decide. Never
-// exposes the internal team or project id.
+// exposes the internal project id; the team is named by its ref, which the project's
+// own URLs carry.
 export interface InviteView {
   token: string;
   teamName: string;
+  teamRef: string;
   projectKey: string | null;
   projectName: string | null;
   email: string;
@@ -76,6 +75,7 @@ export interface InviteView {
 // Where an invitee landed once the invite was accepted.
 export interface AcceptedInvite {
   teamName: string;
+  teamRef: string;
   projectKey: string | null;
   projectName: string | null;
   role: MemberRole | null;
@@ -200,10 +200,10 @@ export async function mayGrantInviteRanks(
   if (!grantsTeamRank && !grantsProjectOwner) return true;
   if (!senderId) return false;
 
-  const standing = await getTeamMembership(invite.teamId, senderId);
+  const standing = (await getTeamAccess(invite.teamId, senderId))?.role ?? null;
   if (grantsTeamRank && standing !== 'owner') return false;
   if (grantsProjectOwner && !runsTeam(standing)) {
-    return (await getMembership(invite.projectId!, senderId)) === 'owner';
+    return (await getProjectAccess(invite.projectId!, senderId))?.role === 'owner';
   }
   return true;
 }
@@ -285,7 +285,9 @@ export async function getInviteByToken(token: string): Promise<InviteView | null
   const rows = await db
     .select({
       token: teamInvite.token,
+      teamId: team.id,
       teamName: team.name,
+      teamSlug: team.slug,
       projectKey: project.key,
       projectName: project.name,
       email: teamInvite.email,
@@ -307,6 +309,7 @@ export async function getInviteByToken(token: string): Promise<InviteView | null
   return {
     token: r.token,
     teamName: r.teamName,
+    teamRef: teamRef({ id: r.teamId, slug: r.teamSlug }),
     projectKey: r.projectKey,
     projectName: r.projectName,
     email: r.email,
@@ -362,9 +365,7 @@ export async function acceptInvite(
     throw new HttpError(409, 'You are already a member of this project', 'ALREADY_PROJECT_MEMBER');
   }
 
-  // Somebody already in the team takes no further seat: the accept only rewrites the
-  // rank they hold.
-  if (!(await getTeamMembership(invite.teamId, userId))) await assertTeamSeatFree(invite.teamId);
+  await assertSeatFree(invite.teamId, userId);
 
   return db.transaction(async (tx) => {
     // An invite is refused for an address already in the team, so a conflict here is
@@ -415,7 +416,7 @@ export async function acceptInvite(
       .where(eq(teamInvite.id, invite.id));
 
     const [joinedTeam] = await tx
-      .select({ name: team.name })
+      .select({ id: team.id, name: team.name, slug: team.slug })
       .from(team)
       .where(eq(team.id, invite.teamId));
     const [joinedProject] = invite.projectId
@@ -426,6 +427,7 @@ export async function acceptInvite(
       : [];
     return {
       teamName: joinedTeam.name,
+      teamRef: teamRef(joinedTeam),
       projectKey: joinedProject?.key ?? null,
       projectName: joinedProject?.name ?? null,
       role: invite.projectRole as MemberRole | null,

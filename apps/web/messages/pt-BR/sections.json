@@ -25,7 +25,7 @@
     },
     "general": {
       "label": "Geral",
-      "description": "Padrões para novos projetos."
+      "description": "Workspaces pessoais e padrões para novos projetos."
     },
     "authentication": {
       "label": "Autenticação",
@@ -100,6 +100,10 @@
     "git": {
       "label": "Repositórios",
       "description": "Feche issues quando seus pull requests mesclam no GitHub, GitLab, Gitea, Forgejo ou Bitbucket."
+    },
+    "import-export": {
+      "label": "Importar/Exportar",
+      "description": "Importe issues, comentários e etiquetas de uma instância Plane auto-hospedada, ou exporte os dados deste projeto como JSON."
     },
     "ai-agents": {
       "label": "Agentes de IA",

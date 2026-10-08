@@ -1,4 +1,5 @@
 import { t } from 'elysia';
+import { PROJECT_KEY_PATTERN } from './key';
 import { PROJECT_FEATURES } from '#shared/features';
 import { ColumnResponse } from '#modules/columns/model';
 import { CustomFieldResponse } from '#modules/custom-fields/model';
@@ -6,6 +7,7 @@ import { IssueTemplateResponse } from '#modules/issue-templates/model';
 import { IssueTypeResponse } from '#modules/issue-types/model';
 import { LabelGroupResponse, LabelResponse } from '#modules/labels/model';
 import { PermissionMatrixSchema } from '#shared/permissions';
+import { AccessViaSchema } from '#shared/workspace-roles';
 import { ISSUE_TYPE_PRESET_KEYS } from './service';
 import { COPY_INCLUDE_KEYS } from './copy';
 
@@ -13,8 +15,13 @@ import { COPY_INCLUDE_KEYS } from './copy';
 // input tokens each time, so it is capped on the way in and cut again in the prompt.
 export const PROJECT_DESCRIPTION_LIMIT = 2000;
 
+const projectKey = t.String({
+  pattern: PROJECT_KEY_PATTERN,
+  description: 'Upper-case letters and digits, starting with a letter, up to 10 characters.',
+});
+
 const projectBody = t.Object({
-  key: t.String({ minLength: 1 }),
+  key: projectKey,
   name: t.String({ minLength: 1 }),
   description: t.Optional(t.String({ maxLength: PROJECT_DESCRIPTION_LIMIT })),
 });
@@ -48,6 +55,7 @@ export const copyProjectBody = t.Composite([
 ]);
 
 export const updateProjectBody = t.Object({
+  key: t.Optional(projectKey),
   name: t.Optional(t.String({ minLength: 1 })),
   description: t.Optional(t.String({ maxLength: PROJECT_DESCRIPTION_LIMIT })),
 });
@@ -95,7 +103,11 @@ export const ProjectResponse = t.Object({
   id: t.Number(),
   teamId: t.Number(),
   teamName: t.String(),
+  teamRef: t.String({ description: "The team's slug, or its id while it has none." }),
   key: t.String(),
+  ref: t.String({
+    description: "'<teamRef>.<key>': how routes containing {projectKey} name this project.",
+  }),
   name: t.String(),
   description: t.String(),
   mcpEnabled: t.Boolean(),
@@ -114,6 +126,9 @@ export const ProjectResponse = t.Object({
   timeEstimateEnabled: t.Boolean(),
   timeLoggingEnabled: t.Boolean(),
   availableFeatures: t.Array(t.UnionEnum([...PROJECT_FEATURES])),
+  archivedAt: t.Nullable(
+    t.String({ description: 'When the project was archived, or null while it is active.' }),
+  ),
   createdAt: t.String(),
 });
 
@@ -125,6 +140,7 @@ export const ProjectListResponse = t.Array(
     ProjectResponse,
     t.Object({
       role: t.Union([t.Literal('owner'), t.Literal('member')]),
+      via: AccessViaSchema,
       lastActivityAt: t.Nullable(
         t.String({
           description: 'Newest readable work-item activity or comment timestamp, or null.',
@@ -164,6 +180,9 @@ const ViewerResponse = t.Object({
   teamRole: t.Nullable(
     t.Union([t.Literal('owner'), t.Literal('manager'), t.Literal('member'), t.Literal('agent')]),
   ),
+  // 'workspace' when the caller is not a member of the project and reaches it through
+  // their role in the workspace that holds it.
+  via: AccessViaSchema,
 });
 
 // The project board scaffold (GET /projects/:projectKey): the project plus its

@@ -38,7 +38,7 @@ export const agentChatConfig = {
   maxAttempts: () => intEnv('AGENT_CHAT_MAX_ATTEMPTS', 3),
   // How long a claim waits for work before it answers "nothing", and how often it looks
   // while it waits. The wait is what makes an answer start the moment it is sent.
-  claimWaitMs: () => intEnv('AGENT_CHAT_CLAIM_WAIT_MS', 25_000),
+  claimWaitMs: () => Math.min(intEnv('AGENT_CHAT_CLAIM_WAIT_MS', 25_000), 30_000),
   claimPollMs: () => intEnv('AGENT_CHAT_CLAIM_POLL_MS', 500),
   streamPollMs: () => intEnv('AGENT_CHAT_STREAM_POLL_MS', 300),
   historyMessages: () => intEnv('AGENT_CHAT_HISTORY_MESSAGES', 20),
@@ -428,7 +428,7 @@ export async function claimNextMessage(agent: RunnerAgent): Promise<ClaimedChat 
     const message = await claimMessage(agent);
     if (message) return message;
     if (Date.now() >= deadline) return null;
-    await sleep(agentChatConfig.claimPollMs());
+    await sleep(Math.min(agentChatConfig.claimPollMs(), Math.max(0, deadline - Date.now())));
   }
 }
 
@@ -436,33 +436,62 @@ export async function claimNextMessage(agent: RunnerAgent): Promise<ClaimedChat 
 // a previous attempt produced: the answer is generated again from the start, and the
 // browser would otherwise read the abandoned half twice.
 async function claimMessage(agent: RunnerAgent): Promise<ClaimedChat | null> {
-  const rows = await db.execute(sql`
-    UPDATE agent_chat_message m
-    SET attempts = m.attempts + 1,
-        status = 'streaming',
-        content = '',
-        started_at = coalesce(m.started_at, now()),
-        next_attempt_at = now() + make_interval(secs => ${agentChatConfig.leaseSeconds()})
-    WHERE m.id = (
-      SELECT id FROM agent_chat_message q
-      WHERE q.agent_id = ${agent.id}
-        AND q.role = 'assistant'
-        AND q.status IN ('pending', 'streaming')
-        AND q.next_attempt_at <= now()
-      ORDER BY q.next_attempt_at, q.id
-      FOR UPDATE SKIP LOCKED
+  const rows = await db.transaction(async (tx) => {
+    const threads = await tx.execute(sql`
+      WITH live_heads AS MATERIALIZED (
+        SELECT q.thread_id, min(q.id) AS id FROM agent_chat_message q
+        WHERE q.agent_id = ${agent.id}
+          AND q.role = 'assistant'
+          AND q.status IN ('pending', 'streaming')
+        GROUP BY q.thread_id
+      ), ready_heads AS MATERIALIZED (
+        SELECT h.thread_id FROM live_heads h
+        JOIN agent_chat_message head ON head.id = h.id
+        WHERE head.next_attempt_at <= now()
+          AND head.attempts < ${agentChatConfig.maxAttempts()}
+        ORDER BY head.next_attempt_at, head.id
+      )
+      SELECT t.id FROM ready_heads h
+      CROSS JOIN LATERAL (
+        SELECT t.id FROM agent_chat_thread t
+        WHERE t.id = h.thread_id AND t.agent_id = ${agent.id}
+        FOR UPDATE SKIP LOCKED
+      ) t
       LIMIT 1
-    )
-    RETURNING
-      m.id,
-      m.thread_id AS "threadId",
-      m.attempts,
-      (SELECT u.name FROM agent_chat_thread t JOIN "user" u ON u.id = t.user_id
-         WHERE t.id = m.thread_id) AS "requesterName",
-      (SELECT u.username FROM agent_chat_thread t JOIN "user" u ON u.id = t.user_id
-         WHERE t.id = m.thread_id) AS "requesterUsername",
-      (SELECT cli_session_id FROM agent_chat_thread t WHERE t.id = m.thread_id) AS "sessionId"
-  `);
+    `);
+    const thread = (threads as unknown as { id: string }[])[0];
+    if (!thread) return [];
+    // Re-read the first unfinished answer after taking the thread lock: a concurrent
+    // claim may have committed while the thread selection used an earlier snapshot.
+    return tx.execute(sql`
+      UPDATE agent_chat_message m
+      SET attempts = m.attempts + 1,
+          status = 'streaming',
+          content = '',
+          started_at = coalesce(m.started_at, now()),
+          next_attempt_at = now() + make_interval(secs => ${agentChatConfig.leaseSeconds()})
+      WHERE m.id = (
+        SELECT q.id FROM agent_chat_message q
+        WHERE q.thread_id = ${thread.id}
+          AND q.role = 'assistant'
+          AND q.status IN ('pending', 'streaming')
+        ORDER BY q.id
+        LIMIT 1
+      )
+        AND m.status IN ('pending', 'streaming')
+        AND m.next_attempt_at <= now()
+        AND m.attempts < ${agentChatConfig.maxAttempts()}
+      RETURNING
+        m.id,
+        m.thread_id AS "threadId",
+        m.attempts,
+        (SELECT u.name FROM agent_chat_thread t JOIN "user" u ON u.id = t.user_id
+           WHERE t.id = m.thread_id) AS "requesterName",
+        (SELECT u.username FROM agent_chat_thread t JOIN "user" u ON u.id = t.user_id
+           WHERE t.id = m.thread_id) AS "requesterUsername",
+        (SELECT cli_session_id FROM agent_chat_thread t WHERE t.id = m.thread_id) AS "sessionId"
+    `);
+  });
   const row = (rows as unknown as ClaimedRow[])[0];
   if (!row) return null;
   await db.delete(agentChatEvent).where(eq(agentChatEvent.messageId, row.id));

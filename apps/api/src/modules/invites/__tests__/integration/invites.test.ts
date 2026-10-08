@@ -33,7 +33,7 @@ async function configureEmail(owner: ReturnType<typeof authedApi>) {
   expect(result.status).toBe(200);
 }
 
-// The id of the team the caller owns — every account is given one at registration.
+// The id of the team the caller owns — signUpTestUser gives every account one.
 async function ownTeamId(api: ReturnType<typeof authedApi>): Promise<number> {
   const teams = await api.teams.get();
   return teams.data!.find((one) => one.role === 'owner')!.id;
@@ -406,15 +406,15 @@ describe('invites', () => {
       expect(view.data).toMatchObject({ status: 'accepted' });
     });
 
-    it('refuses the accept once the team has no seat left', async () => {
+    it('refuses the accept once the workspace has no seat left', async () => {
       const owner = await setupOwner();
-      const invitee = await signUpTestUser();
+      const invitee = await signUpTestUser({ team: false });
       const created = await owner.api
         .projects({ projectKey: 'MKT' })
         .invites.post({ email: invitee.email, role: 'member' });
       const inviteeApi = authedApi(invitee.cookie);
-      // The owner alone already fills the team.
-      setLimits({ maxTeamMembers: 1 });
+      // The owner alone already fills the workspace.
+      setLimits({ maxSeats: 1 });
 
       const accept = await inviteeApi.invites({ token: created.data!.token }).accept.post();
       expect(accept.status).toBe(409);
@@ -425,6 +425,20 @@ describe('invites', () => {
       expect((await inviteeApi.invites({ token: created.data!.token }).accept.post()).status).toBe(
         200,
       );
+    });
+
+    it('takes no new seat for somebody already in another team of the workspace', async () => {
+      const owner = await setupOwner();
+      const invitee = await signUpTestUser();
+      const created = await owner.api
+        .projects({ projectKey: 'MKT' })
+        .invites.post({ email: invitee.email, role: 'member' });
+      setLimits({ maxSeats: 2 });
+
+      const accept = await authedApi(invitee.cookie)
+        .invites({ token: created.data!.token })
+        .accept.post();
+      expect(accept.status).toBe(200);
     });
 
     it("joins the invitee on the invite's pinned custom role", async () => {

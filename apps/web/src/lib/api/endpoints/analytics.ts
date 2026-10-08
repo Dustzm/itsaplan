@@ -1,5 +1,5 @@
 import type { BreakdownBy } from '@/utils/dashboardWidgets';
-import type { AgentRunStatus } from '@/lib/api/endpoints/agents';
+import type { AgentRunStatus, AgentRunTrigger } from '@/lib/api/endpoints/agents';
 import { request } from '@/lib/api/core/client';
 import type { ActivityPage, FeedCursor } from '@/lib/api/endpoints/activity';
 
@@ -34,11 +34,48 @@ export interface ThroughputWeek {
   closed: number;
 }
 
+// The state of the project's issues at the end of one day (burnup widget).
+export interface BurnupDay {
+  date: string;
+  scope: number;
+  started: number;
+  completed: number;
+}
+
+// A completion date projected from the rates over the last windowDays days: the
+// remaining issues plus the ones expected to appear, at the scope growth rate,
+// while they are closed at the closing rate; null when nothing closed in the
+// window or nothing is left. projectedScope is the scope the projection ends at.
+export interface BurnupForecast {
+  windowDays: number;
+  velocityPerDay: number;
+  scopeGrowthPerDay: number;
+  remaining: number;
+  projectedScope: number;
+  projectedDate: string | null;
+  // The projected date with the days to go shortened and lengthened by about
+  // 40%; null together with projectedDate.
+  optimisticDate: string | null;
+  pessimisticDate: string | null;
+}
+
+export interface Burnup {
+  days: BurnupDay[];
+  forecast: BurnupForecast;
+  targetDate: string | null;
+}
+
+export interface BurnupParams {
+  days: number;
+  initiativeId: number | null;
+  forecastWeeks: number;
+}
+
 // One agent run in the project-wide feed (agent runs widget).
 export interface AgentRunFeedItem {
   id: number;
   status: AgentRunStatus;
-  trigger: 'mention' | 'delegation' | 'field' | 'schedule' | 'manual';
+  trigger: AgentRunTrigger;
   agentId: number;
   agentName: string;
   issueId: number | null;
@@ -92,6 +129,15 @@ export const getPulse = (
 
 export const getThroughput = (projectKey: string, weeks = 12) =>
   request<ThroughputWeek[]>(`/projects/${projectKey}/analytics/throughput?weeks=${weeks}`);
+
+export const getBurnup = (projectKey: string, params: BurnupParams) => {
+  const q = new URLSearchParams({
+    days: String(params.days),
+    forecastWeeks: String(params.forecastWeeks),
+  });
+  if (params.initiativeId != null) q.set('initiativeId', String(params.initiativeId));
+  return request<Burnup>(`/projects/${projectKey}/analytics/burnup?${q}`);
+};
 
 export const listActivity = (
   projectKey: string,

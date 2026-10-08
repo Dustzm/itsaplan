@@ -1,19 +1,27 @@
 import { HttpError } from './lib';
 import {
   getProjectById,
-  getProjectByKey,
+  getProjectByRef,
   projectFeatures,
   type ProjectRow,
 } from '#modules/projects/service';
 import { featureLabel, type ProjectFeature } from './features';
-import { getMembership, getMemberContext, getTeamPermissions } from '#modules/members/service';
+import { getMemberContext, getTeamPermissions } from '#modules/members/service';
 import { getTeamMembership, runsTeam, type TeamStanding } from '#modules/teams/service';
+import { projectWorkspaceGrant, workspaceGrant } from '#modules/workspaces/service';
 import { hasPermission, type PermissionAction, type PermissionResource } from './permissions';
+import {
+  mergePermissions,
+  projectAccess,
+  teamAccess,
+  type ProjectAccess,
+  type TeamAccess,
+} from './workspace-roles';
 
 // The authenticated user carried on the request context. Populated by the
 // session guard in planner.ts from the better-auth session. Access checks only
 // need the id; role is the global better-auth role ("god" | "user") and is not
-// used for project access (access is strictly by project membership).
+// used for project access (that is membership and the role in the workspace).
 export interface AuthUser {
   id: string;
   email?: string | null;
@@ -30,49 +38,69 @@ export function requireUser(user: AuthUser | undefined | null): AuthUser {
 }
 
 // Asserts the session belongs to the instance owner ("god"), the role the first
-// registered user gets. It gates instance-wide administration (god mode) only —
-// project access stays strictly by membership, so this never bypasses a project
-// permission check.
+// registered user gets. It gates instance-wide administration (god mode) only and
+// never bypasses a project permission check.
 export function requireGod(user: AuthUser | undefined | null): AuthUser {
   const current = requireUser(user);
   if (current.role !== 'god') throw new HttpError(403, 'Instance administration is owner-only');
   return current;
 }
 
-// Resolves the :projectKey path param, throwing 404 for an unknown project.
-async function requireProject(projectKey: string): Promise<ProjectRow> {
-  const project = await getProjectByKey(projectKey);
+// What the person holds in a project: their membership, raised to what their role in
+// the workspace grants (see workspace-roles.ts). Every access check below reads it.
+export async function getProjectAccess(
+  projectId: number,
+  userId: string,
+): Promise<ProjectAccess | null> {
+  const [member, grant] = await Promise.all([
+    getMemberContext(projectId, userId),
+    projectWorkspaceGrant(projectId, userId),
+  ]);
+  return projectAccess(member, grant);
+}
+
+// The same for a team: their standing in it, raised to the workspace grant.
+export async function getTeamAccess(teamId: number, userId: string): Promise<TeamAccess | null> {
+  const [standing, grant] = await Promise.all([
+    getTeamMembership(teamId, userId),
+    workspaceGrant(teamId, userId),
+  ]);
+  return teamAccess(standing, grant);
+}
+
+// Resolves the :projectKey path param (see getProjectByRef), throwing 404 for an
+// unknown project.
+async function requireProject(projectKey: string, userId: string): Promise<ProjectRow> {
+  const project = await getProjectByRef(projectKey, userId);
   if (!project) throw new HttpError(404, `Project '${projectKey}' not found`);
   return project;
 }
 
 // Resolves the :projectKey path param to a project the user may access. Throws
-// 404 for an unknown project and 403 when the user is not a member. Wrapped by
+// 404 for an unknown project and 403 when the user has no access to it. Wrapped by
 // the projectMember and projectOwner guards.
 export async function requireProjectAccess(
   projectKey: string,
   user: AuthUser | undefined | null,
 ): Promise<ProjectRow> {
   const current = requireUser(user);
-  const project = await requireProject(projectKey);
-  const role = await getMembership(project.id, current.id);
-  if (!role) throw new HttpError(403, 'You do not have access to this project');
+  const project = await requireProject(projectKey, current.id);
+  if (!(await getProjectAccess(project.id, current.id))) {
+    throw new HttpError(403, 'You do not have access to this project');
+  }
   return project;
 }
 
 // Resolves the :projectKey path param to a project and asserts the user is an
-// owner, in a single membership lookup. Wrapped by the projectOwner guard, used
-// for role and member management. Throws 404 for an unknown project, and 403 for
-// a non-member or a member who is not an owner.
+// owner of it. Wrapped by the projectOwner guard, used for role and member
+// management. Throws 404 for an unknown project, and 403 for anyone else.
 export async function requireProjectOwner(
   projectKey: string,
   user: AuthUser | undefined | null,
 ): Promise<ProjectRow> {
   const current = requireUser(user);
-  const project = await requireProject(projectKey);
-  const role = await getMembership(project.id, current.id);
-  if (!role) throw new HttpError(403, 'You do not have access to this project');
-  if (role !== 'owner') throw new HttpError(403, 'Only a project owner can do this');
+  const project = await requireProject(projectKey, current.id);
+  await assertProjectOwner(project.id, current);
   return project;
 }
 
@@ -85,8 +113,9 @@ export async function requireProjectAdmin(
   projectKey: string,
   user: AuthUser | undefined | null,
 ): Promise<ProjectRow> {
-  const project = await requireProject(projectKey);
-  await assertProjectAdmin(project, user);
+  const current = requireUser(user);
+  const project = await requireProject(projectKey, current.id);
+  await assertProjectAdmin(project, current);
   return project;
 }
 
@@ -99,8 +128,8 @@ export async function assertProjectAdmin(
   user: AuthUser | undefined | null,
 ): Promise<void> {
   const current = requireUser(user);
-  if ((await getMembership(project.id, current.id)) === 'owner') return;
-  if (runsTeam(await getTeamMembership(project.teamId, current.id))) return;
+  if ((await getProjectAccess(project.id, current.id))?.role === 'owner') return;
+  if (runsTeam((await getTeamAccess(project.teamId, current.id))?.role ?? null)) return;
   throw new HttpError(403, 'Only a project owner or a team owner or manager can do this');
 }
 
@@ -115,8 +144,8 @@ export async function requireTeamRunsProject(
   user: AuthUser | undefined | null,
 ): Promise<ProjectRow> {
   const current = requireUser(user);
-  const project = await requireProject(projectKey);
-  if (!runsTeam(await getTeamMembership(project.teamId, current.id)))
+  const project = await requireProject(projectKey, current.id);
+  if (!runsTeam((await getTeamAccess(project.teamId, current.id))?.role ?? null))
     throw new HttpError(403, 'Only a team owner or manager can do this');
   return project;
 }
@@ -132,9 +161,8 @@ export async function requireMemberAdmin(
   action: PermissionAction,
 ): Promise<ProjectRow> {
   const current = requireUser(user);
-  const project = await requireProject(projectKey);
-  const standing = await getTeamMembership(project.teamId, current.id);
-  if (runsTeam(standing)) return project;
+  const project = await requireProject(projectKey, current.id);
+  if (runsTeam((await getTeamAccess(project.teamId, current.id))?.role ?? null)) return project;
   await assertPermission(project.id, current, resource, action);
   return project;
 }
@@ -183,14 +211,28 @@ export async function assertProjectFeature(
   if (project) assertFeatureEnabled(project, feature);
 }
 
+// An archived project is read-only until it is restored: only a GET or HEAD passes.
+export function assertWritable(project: ProjectRow, method: string): void {
+  if (project.archivedAt && method !== 'GET' && method !== 'HEAD') {
+    throw new HttpError(403, 'This project is archived; restore it to make changes');
+  }
+}
+
+// The same check for a caller that resolved only the project's id.
+export async function assertProjectWritable(projectId: number, method: string): Promise<void> {
+  if (method === 'GET' || method === 'HEAD') return;
+  const project = await getProjectById(projectId);
+  if (project) assertWritable(project, method);
+}
+
 // Formats a resource key for an error message: "custom_fields" -> "custom fields".
 function resourceLabel(resource: PermissionResource): string {
   return resource.replace(/_/g, ' ');
 }
 
-// Asserts the user is a member of the project and their role grants the given
-// action on the given resource. Owners bypass the matrix (always allowed).
-// Throws 403 for a non-member or a member whose role lacks the permission. The
+// Asserts the user has access to the project and it grants the given action on the
+// given resource. Owners bypass the matrix (always allowed). Throws 403 for anyone
+// without access and for access that lacks the permission. The
 // underlying permission check behind the permission guard and the feature-local
 // entity guards.
 export async function assertPermission(
@@ -200,7 +242,7 @@ export async function assertPermission(
   action: PermissionAction,
 ): Promise<void> {
   const current = requireUser(user);
-  const ctx = await getMemberContext(projectId, current.id);
+  const ctx = await getProjectAccess(projectId, current.id);
   if (!ctx) throw new HttpError(403, 'You do not have access to this project');
   if (ctx.role === 'owner') return;
   if (!hasPermission(ctx.permissions, resource, action)) {
@@ -216,9 +258,9 @@ export async function assertProjectOwner(
   user: AuthUser | undefined | null,
 ): Promise<void> {
   const current = requireUser(user);
-  const role = await getMembership(projectId, current.id);
-  if (!role) throw new HttpError(403, 'You do not have access to this project');
-  if (role !== 'owner') throw new HttpError(403, 'Only a project owner can do this');
+  const access = await getProjectAccess(projectId, current.id);
+  if (!access) throw new HttpError(403, 'You do not have access to this project');
+  if (access.role !== 'owner') throw new HttpError(403, 'Only a project owner can do this');
 }
 
 // Whether the user may perform the action, without throwing. For field-level
@@ -231,7 +273,7 @@ export async function checkPermission(
   action: PermissionAction,
 ): Promise<boolean> {
   if (!user) return false;
-  const ctx = await getMemberContext(projectId, user.id);
+  const ctx = await getProjectAccess(projectId, user.id);
   if (!ctx) return false;
   return ctx.role === 'owner' || hasPermission(ctx.permissions, resource, action);
 }
@@ -246,20 +288,21 @@ export async function requireProjectPermission(
   action: PermissionAction,
 ): Promise<ProjectRow> {
   const current = requireUser(user);
-  const project = await requireProject(projectKey);
+  const project = await requireProject(projectKey, current.id);
   await assertPermission(project.id, current, resource, action);
   return project;
 }
 
-// The caller's standing in the team a :teamId route addresses.
+// The caller's standing in the team a :teamId route addresses, raised to the workspace
+// grant (getTeamAccess).
 export interface TeamMembership {
   teamId: number;
   role: TeamStanding;
   userId: string;
 }
 
-// Resolves the :teamId path param to the caller's membership in it. 404 for an
-// unknown team and for one the caller is not a member of: a team the caller cannot
+// Resolves the :teamId path param to the caller's standing in it. 404 for an
+// unknown team and for one the caller has no access to: a team the caller cannot
 // see should not be distinguishable from one that does not exist. Wrapped by the
 // team guards.
 export async function requireTeamMembership(
@@ -267,9 +310,9 @@ export async function requireTeamMembership(
   user: AuthUser | undefined | null,
 ): Promise<TeamMembership> {
   const current = requireUser(user);
-  const role = await getTeamMembership(teamId, current.id);
-  if (!role) throw new HttpError(404, 'Team not found');
-  return { teamId, role, userId: current.id };
+  const access = await getTeamAccess(teamId, current.id);
+  if (!access) throw new HttpError(404, 'Team not found');
+  return { teamId, role: access.role, userId: current.id };
 }
 
 // Asserts the caller may perform the action on a resource the team owns and every
@@ -284,9 +327,12 @@ export async function requireTeamPermission(
   resource: PermissionResource,
   action: PermissionAction,
 ): Promise<TeamMembership> {
-  const membership = await requireTeamMembership(teamId, user);
-  if (runsTeam(membership.role)) return membership;
-  const permissions = await getTeamPermissions(teamId, membership.userId);
+  const current = requireUser(user);
+  const access = await getTeamAccess(teamId, current.id);
+  if (!access) throw new HttpError(404, 'Team not found');
+  const membership = { teamId, role: access.role, userId: current.id };
+  if (runsTeam(access.role)) return membership;
+  const permissions = mergePermissions(await getTeamPermissions(teamId, current.id), access.grant);
   if (!hasPermission(permissions, resource, action)) {
     throw new HttpError(403, `You do not have permission to ${action} ${resourceLabel(resource)}`);
   }

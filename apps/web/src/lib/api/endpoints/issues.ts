@@ -29,7 +29,7 @@ export interface Issue {
   id: number;
   projectId: number;
   // Project-scoped sequence number (the "42" in "MKT-42"). Addresses the issue by
-  // its human number in URLs (/project/MKT/issue/42).
+  // its human number in URLs (/acme/issue/MKT-42).
   sequenceNumber: number;
   identifier: string;
   typeId: number | null;
@@ -309,6 +309,14 @@ export const listIssueCycles = (id: number) => request<IssueCycleEntry[]>(`/issu
 
 export const updateIssue = (id: number, patch: IssuePatch) =>
   request<Issue>(`/issues/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+
+// Moves the issue, with its subtasks, to another project of the same team. Left
+// without a column, the server picks the one of the same name or state type.
+export const moveIssue = (id: number, projectId: number, columnId?: number) =>
+  request<Issue>(`/issues/${id}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ projectId, columnId }),
+  });
 
 // An issue that has subtasks needs a disposition saying what happens to them;
 // without one the server rejects the delete with a 409.

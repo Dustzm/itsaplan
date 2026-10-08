@@ -52,6 +52,27 @@ describe('auto-archive sweep', () => {
     expect(feed.items.map((entry) => entry.action)).toContain('archived');
   });
 
+  it('sends issue.updated with the sweep as a system actor', async () => {
+    const { api, doneId } = await setup();
+    const webhookId = (
+      await api.projects({ projectKey: 'MKT' }).webhooks.post({
+        url: 'https://example.com/hook',
+        events: ['issue.updated'],
+      })
+    ).data!.id;
+    const issueId = await addIssue(api, doneId, 'Shipped');
+    await backdate(issueId, 20);
+
+    await sweepStaleIssues();
+
+    const deliveries = (await api.webhooks({ webhookId }).deliveries.get()).data!.items;
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].payload).toMatchObject({
+      actor: { type: 'system', id: null, name: 'Auto-archive' },
+      data: { id: issueId },
+    });
+  });
+
   it('leaves an issue that is still active, recently touched, or in a live column', async () => {
     const { api, doneId, todoId } = await setup();
     const recent = await addIssue(api, doneId, 'Just done');
@@ -62,6 +83,18 @@ describe('auto-archive sweep', () => {
 
     expect((await api.issues({ issueId: recent }).get()).data!.archivedAt).toBeNull();
     expect((await api.issues({ issueId: open }).get()).data!.archivedAt).toBeNull();
+  });
+
+  it('leaves the issues of an archived project', async () => {
+    const { api, doneId } = await setup();
+    const issueId = await addIssue(api, doneId, 'Shipped');
+    await backdate(issueId, 20);
+    const project = (await api.projects({ projectKey: 'MKT' }).get()).data!.project;
+    await api.teams({ teamId: project.teamId }).projects({ projectId: project.id }).archive.post();
+
+    expect(await sweepStaleIssues()).toBe(0);
+
+    expect((await api.issues({ issueId }).get()).data!.archivedAt).toBeNull();
   });
 
   it('does nothing on a second pass over the issues it already archived', async () => {

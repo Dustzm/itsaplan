@@ -4,15 +4,14 @@ import { noContent } from '#shared/http';
 import { HttpError } from '#shared/lib';
 import { authContext } from '#shared/auth-context';
 import { guards } from '#shared/guards';
-import { requireUser } from '#shared/access';
+import { getProjectAccess, getTeamAccess, requireUser } from '#shared/access';
 import { isMcpRequest } from '#shared/mcp-request';
 import { accessErrors, commonErrors, errors } from '#shared/responses';
-import { getMemberContext, listAssigneeCandidates } from '#modules/members/service';
+import { listAssigneeCandidates } from '#modules/members/service';
 import { listColumns } from '#modules/columns/service';
 import { listIssueTypes } from '#modules/issue-types/service';
 import { listLabels, listLabelGroups } from '#modules/labels/service';
 import { listCustomFields } from '#modules/custom-fields/service';
-import { getTeamMembership } from '#modules/teams/service';
 import { listIssueTemplates } from '#modules/issue-templates/service';
 import {
   AutoArchiveResponse,
@@ -88,7 +87,7 @@ export const projectRoutes = new Elysia({ name: 'projects', detail: { tags: ['Pr
       detail: {
         summary: 'Create a project',
         description:
-          'Create a project you own. `key` is the unique, immutable prefix for issue ids ' +
+          'Create a project you own. `key` is the immutable prefix for issue ids, unique within the team ' +
           "(e.g. 'MKT' -> 'MKT-1'). Seeds the default columns and the issue types of the " +
           'chosen `preset`.',
         ...mcpTool('create_project'),
@@ -142,7 +141,7 @@ export const projectRoutes = new Elysia({ name: 'projects', detail: { tags: ['Pr
         customFields,
         issueTemplates,
         viewer,
-        teamRole,
+        teamAccess,
       ] = await Promise.all([
         listColumns(project.id),
         listIssueTypes(project.id),
@@ -151,11 +150,11 @@ export const projectRoutes = new Elysia({ name: 'projects', detail: { tags: ['Pr
         listAssigneeCandidates(project.id),
         listCustomFields(project.id, { allTypes: true }),
         listIssueTemplates(project.id),
-        getMemberContext(project.id, userId),
-        getTeamMembership(project.teamId, userId),
+        getProjectAccess(project.id, userId),
+        getTeamAccess(project.teamId, userId),
       ]);
-      // The permission guard already asserted membership, so a context always
-      // exists here; guard against a race (membership revoked mid-request).
+      // The permission guard already asserted access, so it always exists here; guard
+      // against a race (access revoked mid-request).
       if (!viewer) throw new HttpError(403, 'You do not have access to this project');
       return {
         project,
@@ -166,7 +165,7 @@ export const projectRoutes = new Elysia({ name: 'projects', detail: { tags: ['Pr
         assignees,
         customFields,
         issueTemplates,
-        viewer: { role: viewer.role, teamRole },
+        viewer: { role: viewer.role, teamRole: teamAccess?.role ?? null, via: viewer.via },
         permissions: viewer.permissions,
       };
     },
@@ -184,8 +183,8 @@ export const projectRoutes = new Elysia({ name: 'projects', detail: { tags: ['Pr
     },
   )
 
-  // Updates a project's editable metadata (name, description). The key is the
-  // immutable issue-identifier prefix and cannot change. Owner-only.
+  // Updates a project's name, description, and a key that does not match the key
+  // pattern (see updateProject). Owner-only.
   .patch(
     '/projects/:projectKey',
     async ({ project, body }) => {
@@ -196,13 +195,15 @@ export const projectRoutes = new Elysia({ name: 'projects', detail: { tags: ['Pr
     {
       body: updateProjectBody,
       projectOwner: true,
-      response: { 200: ProjectResponse, ...commonErrors },
+      response: { 200: ProjectResponse, ...commonErrors, ...errors(409) },
       detail: {
         summary: 'Update a project',
         description:
           "Update a project's name and/or description. The description is given to the " +
           `agents of the project in their system prompt; up to ${PROJECT_DESCRIPTION_LIMIT} ` +
-          'characters. The key is immutable.',
+          'characters. The key changes only when it does not match the key pattern: a key ' +
+          'created before the pattern existed, for example one that starts with a digit. ' +
+          'A key that another project of the team has is refused with 409.',
         ...mcpTool('update_project'),
       },
     },

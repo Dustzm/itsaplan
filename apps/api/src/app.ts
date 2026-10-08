@@ -8,6 +8,7 @@ import {
   hasConfiguredGoogle,
   hasConfiguredOidc,
   getOidcLabel,
+  isAccountDeactivated,
 } from '@repo/auth';
 import { db, hasConfiguredEmailProvider, user } from '@repo/db';
 import { cors } from '@elysiajs/cors';
@@ -33,7 +34,7 @@ const apiDescription = `REST API for projects, work items, AI agents, Git integr
 
 1. Create a personal API key in [Account settings](${appUrl}/account/api-keys). The key is shown once and carries the same permissions as its owner.
 2. Send it in the \`x-api-key\` header. Never put a key in a URL, issue, comment, or source file.
-3. Use the project key from the URL in routes containing \`{projectKey}\`. This page is opened from a project, but the API document is instance-wide.
+3. In routes containing \`{projectKey}\`, name the project by its \`ref\`, \`<team>.<KEY>\` (e.g. \`acme.MKT\`). A bare key also works while only one of your teams has a project with it. This page is opened from a project, but the API document is instance-wide.
 
 \`\`\`sh
 curl "${apiUrl}/projects" \\
@@ -83,6 +84,7 @@ export const app = new Elysia()
         tags: [
           { name: 'Projects', description: 'Projects and the full work items view' },
           { name: 'Teams', description: 'Teams that own projects' },
+          { name: 'Workspaces', description: 'Workspaces that own teams, and who manages them' },
           { name: 'Members', description: 'Project membership and roles' },
           { name: 'Roles', description: 'Project roles and their permissions' },
           { name: 'Invites', description: 'Project invites (create, accept, reject)' },
@@ -121,6 +123,12 @@ export const app = new Elysia()
             description: 'Files uploaded in an agent chat and their raw bytes',
           },
           { name: 'Imports', description: 'Import drafts that turn an uploaded file into issues' },
+          {
+            name: 'Import/Export',
+            description:
+              'Background jobs that import issues from an external tracker (Plane), and a ' +
+              "project's own data exported as a portable JSON snapshot",
+          },
           { name: 'Avatars', description: "Current user's avatar image (upload and raw bytes)" },
           { name: 'Views', description: 'Saved work items views' },
           { name: 'Share', description: 'Public read-only sharing of issues and views' },
@@ -244,7 +252,9 @@ export const app = new Elysia()
       // A deactivated account is not signed in as far as the app is concerned:
       // every planner route answers 401 for it, and this is what the screens ask
       // first. Deactivation arrives over SCIM, after the session was opened.
-      if (!session || session.user.active === false) return { authenticated: false };
+      if (!session || isAccountDeactivated(session.user)) {
+        return { authenticated: false };
+      }
       return { authenticated: true, user: session.user };
     },
     {

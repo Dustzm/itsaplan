@@ -3,6 +3,10 @@
   "copyAction": "Duplicar proyecto",
   "deleteAction": "Eliminar proyecto",
   "leaveAction": "Abandonar proyecto",
+  "archiveAction": "Archivar proyecto",
+  "restoreAction": "Restaurar proyecto",
+  "archived": "{name} archivado",
+  "restored": "{name} restaurado",
   "deleteDialog": {
     "title": "¿Eliminar {name}?",
     "confirm": "Eliminar definitivamente",
@@ -16,6 +20,8 @@
   },
   "editDialog": {
     "title": "Editar proyecto",
+    "key": "Clave",
+    "keyHint": "Los enlaces a incidencias necesitan una clave de letras mayúsculas y dígitos que empiece por una letra. Después de guardarla, la clave no se puede cambiar.",
     "name": "Nombre",
     "description": "Descripción",
     "submit": "Guardar"

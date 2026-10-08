@@ -1,7 +1,9 @@
 import { t } from 'elysia';
 import { pageQueryFields, pageResponse } from '#shared/pagination';
 import { PermissionMatrixSchema } from '#shared/permissions';
+import { AccessViaSchema } from '#shared/workspace-roles';
 import { StatsDto } from '#modules/analytics/model';
+import { TEAM_SLUG_PATTERN } from './ref';
 
 // Both member lists here take the filters and the window the project member list
 // defines, so a reader learns one query and it holds everywhere.
@@ -17,16 +19,37 @@ export const setTeamMemberRoleBody = t.Object({
   role: t.Union([t.Literal('owner'), t.Literal('manager'), t.Literal('member')]),
 });
 
-export const createTeamBody = t.Object({
-  name: t.String({ minLength: 1, maxLength: 60 }),
+const teamName = t.String({ minLength: 1, maxLength: 60 });
+
+const teamSlug = t.String({
+  pattern: TEAM_SLUG_PATTERN,
+  description:
+    "The team's segment in web URLs: lower-case letters, digits and hyphens, " +
+    'starting with a letter, 2 to 40 characters.',
 });
 
-export const updateTeamBody = t.Partial(createTeamBody);
+export const createTeamBody = t.Object({
+  name: teamName,
+  slug: teamSlug,
+  workspaceId: t.Optional(
+    t.Integer({
+      minimum: 1,
+      description:
+        'The workspace that holds the team. A self-hosted instance has one, which is the default.',
+    }),
+  ),
+});
+
+// A team made before slugs were required has none, and takes no change until one is set.
+export const updateTeamBody = t.Partial(t.Object({ name: teamName, slug: teamSlug }));
 
 // A team DTO (TeamRow from the service).
 export const TeamResponse = t.Object({
   id: t.Number(),
+  workspaceId: t.Number(),
   name: t.String(),
+  slug: t.Nullable(t.String()),
+  ref: t.String({ description: 'How web URLs name the team: its slug, or its id without one.' }),
   mcpEnabled: t.Boolean({
     description:
       'Whether the team is reachable over MCP. Off closes its own resources and every ' +
@@ -36,6 +59,11 @@ export const TeamResponse = t.Object({
     [t.Literal('owner'), t.Literal('manager'), t.Literal('member'), t.Literal('agent')],
     { description: 'Your standing in this team.' },
   ),
+  via: t.Union([t.Literal('member'), t.Literal('workspace')], {
+    description:
+      "'workspace' when you are not in the team and reach it through your role in its " +
+      'workspace.',
+  }),
   source: t.Union([t.Literal('invite'), t.Literal('scim')], {
     description:
       "How your membership came about. A provisioned one is the identity provider's: you " +
@@ -102,6 +130,7 @@ export const TeamProjectPageResponse = pageResponse(
   t.Object({
     id: t.Number(),
     key: t.String(),
+    ref: t.String({ description: "'<teamRef>.<key>': how routes name the project." }),
     name: t.String(),
     description: t.String(),
     mcpEnabled: t.Boolean({ description: "Whether the team's MCP reach covers this project." }),
@@ -115,6 +144,7 @@ export const TeamProjectPageResponse = pageResponse(
       { description: 'The project members who own it.' },
     ),
     isMember: t.Boolean(),
+    archivedAt: t.Nullable(t.String()),
     createdAt: t.String(),
   }),
 );
@@ -125,6 +155,7 @@ export const TeamProjectOptionListResponse = t.Array(
   t.Object({
     id: t.Number(),
     key: t.String(),
+    ref: t.String({ description: "'<teamRef>.<key>': how routes name the project." }),
     name: t.String(),
     mcpEnabled: t.Boolean(),
   }),
@@ -137,6 +168,7 @@ export const TeamProjectDetailResponse = t.Object({
   viewer: t.Nullable(
     t.Object({
       role: t.Union([t.Literal('owner'), t.Literal('member')]),
+      via: AccessViaSchema,
       source: t.Union([t.Literal('invite'), t.Literal('scim')], {
         description: "A provisioned membership is the identity provider's: it cannot be left.",
       }),
@@ -177,4 +209,12 @@ export const TeamMcpResponse = t.Object({
 export const updateTeamMcpBody = t.Object({
   enabled: t.Optional(t.Boolean()),
   projects: t.Optional(t.Array(t.Object({ projectId: t.Number(), enabled: t.Boolean() }))),
+});
+
+export const TeamProjectDefaultsResponse = t.Object({
+  defaultAgentIds: t.Array(t.Number()),
+});
+
+export const updateTeamProjectDefaultsBody = t.Object({
+  defaultAgentIds: t.Array(t.Integer({ minimum: 1 }), { uniqueItems: true }),
 });
