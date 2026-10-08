@@ -1,5 +1,6 @@
 import {
   db,
+  aiAgent,
   chatAttachment,
   documentAsset,
   initiative,
@@ -16,22 +17,37 @@ import {
   projectSetting,
   team,
   teamMember,
+  type DbExecutor,
 } from '@repo/db';
-import { and, desc, eq, getTableColumns, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { HttpError, iso } from '#shared/lib';
 import {
-  defaultMemberPermissions,
-  fullPermissions,
-  normalizePermissions,
-  type Permissions,
-} from '#shared/permissions';
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
+import { HttpError, iso } from '#shared/lib';
+import { PROJECT_KEY_PATTERN } from './key';
+import type { Permissions } from '#shared/permissions';
 import { getProjectSetting, setProjectSetting } from '#shared/project-settings';
 import { PROJECT_FEATURES, featureLabel, type ProjectFeature } from '#shared/features';
-import { getLimits } from '#shared/limits';
+import { getTeamLimits } from '#shared/limits';
+import { projectAccess, type AccessVia } from '#shared/workspace-roles';
+import { toMemberContext, type MemberRole } from '#modules/members/service';
+import { workspaceGrants } from '#modules/workspaces/service';
+import { assertSeatFree } from '#modules/teams/service';
 import { deleteThreadsWhere } from '#modules/agents/core/runtime/memory';
 import { getProjectDefaults } from '#modules/settings/service';
+import { getDefaultRoleId } from '#modules/roles/service';
 import { dropUnusedTeamMembership } from '#modules/scim/reconcile';
-import { deleteObjects } from '#shared/s3';
+import { projectRef, teamRef } from '#modules/teams/ref';
+import { deleteObjects } from '@repo/storage';
 import { lockAttachmentStorage } from '#modules/attachments/storage';
 
 // Data access for projects: the top-level container that groups its own columns,
@@ -43,7 +59,11 @@ export interface ProjectRow {
   id: number;
   teamId: number;
   teamName: string;
+  // The team's segment in web URLs: its slug, or its id while it has none.
+  teamRef: string;
   key: string;
+  // How a URL names the project: "<teamRef>.<key>". See getProjectByRef.
+  ref: string;
   name: string;
   description: string;
   mcpEnabled: boolean;
@@ -65,6 +85,7 @@ export interface ProjectRow {
   // the team that owns the project: its flag above reads as off and the settings page
   // does not offer it.
   availableFeatures: ProjectFeature[];
+  archivedAt: string | null;
   createdAt: string;
 }
 
@@ -86,6 +107,7 @@ export interface ProjectFeatures {
 // actions like deletion; the API still enforces the permission on every request.
 export interface ProjectListItem extends ProjectRow {
   role: 'owner' | 'member';
+  via: AccessVia;
   lastActivityAt: string | null;
   isFavorite: boolean;
   isHidden: boolean;
@@ -94,11 +116,16 @@ export interface ProjectListItem extends ProjectRow {
   permissions?: Permissions;
 }
 
-type ProjectWithTeam = typeof project.$inferSelect & { teamName: string; teamMcpEnabled: boolean };
+type ProjectWithTeam = typeof project.$inferSelect & {
+  teamName: string;
+  teamSlug: string | null;
+  teamMcpEnabled: boolean;
+};
 
 const projectWithTeam = {
   ...getTableColumns(project),
   teamName: team.name,
+  teamSlug: team.slug,
   teamMcpEnabled: team.mcpEnabled,
 };
 
@@ -106,14 +133,16 @@ const projectWithTeam = {
 // what turns a feature off everywhere: the web app reads the flags off this DTO, and
 // the route guards read them off the project the guard resolved.
 export async function mapProject(row: ProjectWithTeam): Promise<ProjectRow> {
-  const { blockedFeatures } = await getLimits({ teamId: row.teamId });
+  const { blockedFeatures } = await getTeamLimits(row.teamId);
   const on = (feature: ProjectFeature, stored: boolean) =>
     stored && !blockedFeatures.includes(feature);
   return {
     id: row.id,
     teamId: row.teamId,
     teamName: row.teamName,
+    teamRef: teamRef({ id: row.teamId, slug: row.teamSlug }),
     key: row.key,
+    ref: projectRef({ id: row.teamId, slug: row.teamSlug }, row.key),
     name: row.name,
     description: row.description,
     mcpEnabled: row.mcpEnabled,
@@ -130,6 +159,7 @@ export async function mapProject(row: ProjectWithTeam): Promise<ProjectRow> {
     timeEstimateEnabled: row.timeEstimateEnabled,
     timeLoggingEnabled: row.timeLoggingEnabled,
     availableFeatures: PROJECT_FEATURES.filter((feature) => !blockedFeatures.includes(feature)),
+    archivedAt: row.archivedAt ? iso(row.archivedAt) : null,
     createdAt: iso(row.createdAt),
   };
 }
@@ -144,9 +174,19 @@ export async function listProjects(
     teamId?: number;
   } = {},
 ): Promise<ProjectListItem[]> {
+  const grants = await workspaceGrants(userId);
+  const grantedTeams = [...grants.keys()];
   const term = opts.q?.trim().replace(/[\\%_]/g, '\\$&');
-  const where = and(
+  const callerMember = and(
+    eq(projectMember.projectId, project.id),
     eq(projectMember.userId, userId),
+  );
+  const where = and(
+    or(
+      isNotNull(projectMember.userId),
+      grantedTeams.length > 0 ? inArray(project.teamId, grantedTeams) : undefined,
+    ),
+    isNull(project.archivedAt),
     opts.mcpOnly ? and(eq(project.mcpEnabled, true), eq(team.mcpEnabled, true)) : undefined,
     opts.teamId !== undefined ? eq(project.teamId, opts.teamId) : undefined,
     term
@@ -157,6 +197,9 @@ export async function listProjects(
         )
       : undefined,
   );
+  const readingTeams = [...grants]
+    .filter(([, grant]) => grant === 'owner' || grant.work_items.read)
+    .map(([teamId]) => teamId);
   const latestActivity = db
     .selectDistinctOn([issue.projectId], {
       projectId: issue.projectId,
@@ -166,15 +209,21 @@ export async function listProjects(
     .innerJoin(issue, eq(issue.id, issueActivity.issueId))
     .innerJoin(project, eq(project.id, issue.projectId))
     .innerJoin(team, eq(team.id, project.teamId))
-    .innerJoin(projectMember, eq(projectMember.projectId, project.id))
+    .leftJoin(projectMember, callerMember)
     .leftJoin(teamRole, eq(teamRole.id, projectMember.roleId))
     .where(
       and(
         where,
         or(
-          eq(projectMember.role, 'owner'),
-          isNull(teamRole.permissions),
-          sql`${teamRole.permissions} -> 'work_items' -> 'read' = 'true'::jsonb`,
+          and(
+            isNotNull(projectMember.userId),
+            or(
+              eq(projectMember.role, 'owner'),
+              isNull(teamRole.permissions),
+              sql`${teamRole.permissions} -> 'work_items' -> 'read' = 'true'::jsonb`,
+            ),
+          ),
+          readingTeams.length > 0 ? inArray(project.teamId, readingTeams) : undefined,
         ),
       ),
     )
@@ -195,7 +244,7 @@ export async function listProjects(
     })
     .from(project)
     .innerJoin(team, eq(team.id, project.teamId))
-    .innerJoin(projectMember, eq(projectMember.projectId, project.id))
+    .leftJoin(projectMember, callerMember)
     .leftJoin(teamRole, eq(teamRole.id, projectMember.roleId))
     .leftJoin(latestActivity, eq(latestActivity.projectId, project.id))
     .where(where)
@@ -203,32 +252,78 @@ export async function listProjects(
   return Promise.all(
     rows.map(
       async ({ memberRole, rolePermissions, lastActivityAt, isFavorite, isHidden, ...row }) => {
-        const role = memberRole === 'owner' ? 'owner' : 'member';
+        const member = memberRole
+          ? toMemberContext(memberRole as MemberRole, rolePermissions)
+          : null;
+        const access = projectAccess(member, grants.get(row.teamId) ?? null)!;
         const item: ProjectListItem = {
           ...(await mapProject(row)),
-          role,
+          role: access.role,
+          via: access.via,
           lastActivityAt: lastActivityAt ? iso(lastActivityAt) : null,
-          isFavorite,
-          isHidden,
+          isFavorite: isFavorite ?? false,
+          isHidden: isHidden ?? false,
         };
-        if (opts.withPermissions) {
-          if (role === 'owner') item.permissions = fullPermissions();
-          else if (rolePermissions) item.permissions = normalizePermissions(rolePermissions);
-          else item.permissions = defaultMemberPermissions();
-        }
+        if (opts.withPermissions) item.permissions = access.permissions;
         return item;
       },
     ),
   );
 }
 
-export async function getProjectByKey(key: string): Promise<ProjectRow | null> {
+// Resolves the project a URL names. The full form is "<teamRef>.<key>", where the
+// team is its slug or its id; a slug starts with a letter, so the two never collide.
+// A bare key is what every URL carried while keys were unique on the instance: it
+// still names a project as long as only one project with that key is in the
+// caller's teams, and is refused with 409 once there are several.
+export async function getProjectByRef(ref: string, userId: string): Promise<ProjectRow | null> {
+  const dot = ref.indexOf('.');
+  if (dot >= 0) {
+    const teamPart = ref.slice(0, dot);
+    const byTeam = /^\d{1,9}$/.test(teamPart)
+      ? eq(team.id, Number(teamPart))
+      : eq(team.slug, teamPart);
+    const [row] = await db
+      .select(projectWithTeam)
+      .from(project)
+      .innerJoin(team, eq(team.id, project.teamId))
+      .where(and(byTeam, eq(project.key, ref.slice(dot + 1))));
+    return row ? mapProject(row) : null;
+  }
+
   const rows = await db
     .select(projectWithTeam)
     .from(project)
     .innerJoin(team, eq(team.id, project.teamId))
-    .where(eq(project.key, key));
-  return rows[0] ? mapProject(rows[0]) : null;
+    .where(eq(project.key, ref));
+  if (rows.length <= 1) return rows[0] ? mapProject(rows[0]) : null;
+
+  const [teamIds, grants] = await Promise.all([
+    db
+      .select({ teamId: teamMember.teamId })
+      .from(teamMember)
+      .where(
+        and(
+          eq(teamMember.userId, userId),
+          inArray(
+            teamMember.teamId,
+            rows.map((r) => r.teamId),
+          ),
+        ),
+      ),
+    workspaceGrants(userId),
+  ]);
+  const mine = rows.filter(
+    (r) => teamIds.some((m) => m.teamId === r.teamId) || grants.has(r.teamId),
+  );
+  if (mine.length === 0) return null;
+  if (mine.length > 1) {
+    throw new HttpError(
+      409,
+      `Several of your teams have a project '${ref}'. Name it with its team, as '<team>.${ref}'.`,
+    );
+  }
+  return mapProject(mine[0]);
 }
 
 export async function getProjectById(id: number): Promise<ProjectRow | null> {
@@ -257,25 +352,50 @@ export async function getProjectTeamId(projectId: number): Promise<number> {
 export async function targetTeam(userId: string, teamId?: number): Promise<TargetTeam> {
   if (teamId == null) return ownedTeam(userId);
   const [row] = await db
-    .select({ id: team.id, name: team.name, mcpEnabled: team.mcpEnabled })
+    .select({
+      id: team.id,
+      name: team.name,
+      slug: team.slug,
+      mcpEnabled: team.mcpEnabled,
+      defaultAgentIds: team.defaultAgentIds,
+    })
     .from(team)
     .where(eq(team.id, teamId));
   if (!row) throw new HttpError(404, 'Team not found');
+  // The creator joins the team with the project (joinTeamAsCreator).
+  await assertSeatFree(row.id, userId);
   return row;
+}
+
+// A project membership stands on a team one. The workspace owner runs every team of the
+// workspace without being in it, so a project they create there makes them a member.
+export async function joinTeamAsCreator(
+  tx: DbExecutor,
+  teamId: number,
+  userId: string,
+): Promise<void> {
+  await tx.insert(teamMember).values({ teamId, userId, role: 'member' }).onConflictDoNothing();
 }
 
 // The team a project is created in, with what mapProject needs from it.
 export interface TargetTeam {
   id: number;
   name: string;
+  slug: string | null;
   mcpEnabled: boolean;
+  defaultAgentIds: number[];
 }
 
-// The team the caller owns. Every account is given one when it is created, so a
-// caller without one is a broken account rather than a state the UI can reach.
+// The first team the caller owns. An account has none until it creates one.
 async function ownedTeam(userId: string): Promise<TargetTeam> {
   const [row] = await db
-    .select({ id: team.id, name: team.name, mcpEnabled: team.mcpEnabled })
+    .select({
+      id: team.id,
+      name: team.name,
+      slug: team.slug,
+      mcpEnabled: team.mcpEnabled,
+      defaultAgentIds: team.defaultAgentIds,
+    })
     .from(teamMember)
     .innerJoin(team, eq(team.id, teamMember.teamId))
     .where(and(eq(teamMember.userId, userId), eq(teamMember.role, 'owner')))
@@ -378,6 +498,15 @@ export async function createProject(
   // What a new project starts with, set instance-wide in god mode. Read before the
   // transaction opens so the settings lookup is not part of it.
   const defaults = await getProjectDefaults();
+  const defaultAgents = ownerTeam.defaultAgentIds.length
+    ? await db
+        .select({ userId: aiAgent.userId })
+        .from(aiAgent)
+        .where(
+          and(eq(aiAgent.teamId, ownerTeam.id), inArray(aiAgent.id, ownerTeam.defaultAgentIds)),
+        )
+    : [];
+  const defaultRoleId = defaultAgents.length ? await getDefaultRoleId(ownerTeam.id) : null;
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(project)
@@ -389,7 +518,18 @@ export async function createProject(
         mcpEnabled: defaults.mcpEnabled,
       })
       .returning();
+    await joinTeamAsCreator(tx, ownerTeam.id, ownerId);
     await tx.insert(projectMember).values({ projectId: row.id, userId: ownerId, role: 'owner' });
+    if (defaultAgents.length) {
+      await tx.insert(projectMember).values(
+        defaultAgents.map((agent) => ({
+          projectId: row.id,
+          userId: agent.userId,
+          role: 'member',
+          roleId: defaultRoleId,
+        })),
+      );
+    }
     for (const [position, column] of DEFAULT_COLUMNS.entries()) {
       await tx.insert(projectColumn).values({
         projectId: row.id,
@@ -412,22 +552,47 @@ export async function createProject(
     await tx
       .insert(projectSetting)
       .values({ projectId: row.id, key: AUTO_ARCHIVE_KEY, value: DEFAULT_AUTO_ARCHIVE });
-    return mapProject({ ...row, teamName: ownerTeam.name, teamMcpEnabled: ownerTeam.mcpEnabled });
+    return mapProject({
+      ...row,
+      teamName: ownerTeam.name,
+      teamSlug: ownerTeam.slug,
+      teamMcpEnabled: ownerTeam.mcpEnabled,
+    });
   });
 }
 
-// Updates a project's editable metadata (name, description). The key is the
-// issue-identifier prefix (e.g. "MKT-42") and is immutable, so it is not editable
-// here. Only the provided fields change.
+// A key stored before PROJECT_KEY_PATTERN existed (e.g. "7XTR") cannot form an issue
+// identifier, so it may be replaced once. A valid key does not change.
 export async function updateProject(
   projectId: number,
-  patch: { name?: string; description?: string },
+  patch: { key?: string; name?: string; description?: string },
 ): Promise<ProjectRow | null> {
   const values: Partial<typeof project.$inferInsert> = {};
+  if (patch.key !== undefined) {
+    const current = await getProjectById(projectId);
+    if (!current) return null;
+    if (patch.key !== current.key) {
+      if (new RegExp(PROJECT_KEY_PATTERN).test(current.key)) {
+        throw new HttpError(400, 'The project key cannot change');
+      }
+      values.key = patch.key;
+    }
+  }
   if (patch.name !== undefined) values.name = patch.name;
   if (patch.description !== undefined) values.description = patch.description;
   if (Object.keys(values).length === 0) return getProjectById(projectId);
   await db.update(project).set(values).where(eq(project.id, projectId));
+  return getProjectById(projectId);
+}
+
+export async function setProjectArchived(
+  projectId: number,
+  archived: boolean,
+): Promise<ProjectRow | null> {
+  await db
+    .update(project)
+    .set({ archivedAt: archived ? new Date() : null })
+    .where(eq(project.id, projectId));
   return getProjectById(projectId);
 }
 
@@ -451,7 +616,7 @@ export async function setProjectFeatures(
   projectId: number,
   patch: Partial<ProjectFeatures>,
 ): Promise<ProjectRow | null> {
-  const { blockedFeatures } = await getLimits({ teamId: await getProjectTeamId(projectId) });
+  const { blockedFeatures } = await getTeamLimits(await getProjectTeamId(projectId));
   const blocked = blockedFeatures.find((feature) => patch[feature]);
   if (blocked) {
     throw new HttpError(400, `${featureLabel(blocked)} are not available for this team`);

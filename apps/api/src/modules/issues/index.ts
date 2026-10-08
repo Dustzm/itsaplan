@@ -3,10 +3,17 @@ import { mcpTool } from '#mcp/generate';
 import { noContent } from '#shared/http';
 import { guards, entityGuard, assertMcpAllowed, requiresPermission } from '#shared/guards';
 import { authContext } from '#shared/auth-context';
-import { assertPermission, assertProjectOwner, requireUser } from '#shared/access';
+import {
+  assertPermission,
+  assertProjectOwner,
+  assertProjectWritable,
+  assertWritable,
+  requireUser,
+} from '#shared/access';
+import { getProjectById } from '#modules/projects/service';
 import { HttpError } from '#shared/lib';
 import { accessErrors, commonErrors, errors } from '#shared/responses';
-import { deleteObject } from '#shared/s3';
+import { deleteObject } from '@repo/storage';
 import {
   createIssue,
   searchIssues,
@@ -29,6 +36,7 @@ import {
 } from './service';
 import {
   listFeed,
+  countFeed,
   listFeedRange,
   listGroupedFeed,
   createComment,
@@ -59,6 +67,7 @@ import {
   updateWorklog,
 } from './worklogs';
 import { listIssueCycles } from './cycle-history';
+import { moveIssue } from './move';
 import {
   createAndLinkPullRequest,
   linkExistingPullRequest,
@@ -111,6 +120,7 @@ import {
   FeedPageResponse,
   GroupedFeedPageResponse,
   feedPageQuery,
+  FeedCountsResponse,
   TimelineSegmentResponse,
   IssueCycleResponse,
   projectKeyParams,
@@ -136,6 +146,7 @@ import {
   updateCommentBody,
   commentParams,
   archiveIssueBody,
+  moveIssueBody,
   BulkUpdatedResponse,
   BulkArchivedResponse,
   BulkDeletedResponse,
@@ -204,7 +215,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
       (p) => getIssueProjectId(Number(p.issueId)),
       'issueStats',
     ),
-    developmentIntegration: entityGuard('integrations', 'Issue not found', (p) =>
+    developmentRepositories: entityGuard('repositories', 'Issue not found', (p) =>
       getIssueProjectId(Number(p.issueId)),
     ),
     checklist: entityGuard(
@@ -239,7 +250,22 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
           if (entry.userId !== requireUser(user).id)
             await assertProjectOwner(entry.projectId, user);
           await assertMcpAllowed(entry.projectId, request.headers);
+          await assertProjectWritable(entry.projectId, request.method);
           return { projectId: entry.projectId };
+        },
+      };
+    },
+    // The project an issue moves to: the caller must be allowed to create issues there,
+    // on top of the delete the issue's own project asks for through workItem.
+    moveTarget(_enabled: boolean) {
+      return {
+        async resolve({ body, user, request }) {
+          const target = await getProjectById((body as { projectId: number }).projectId);
+          if (!target) throw new HttpError(404, 'Project not found');
+          await assertPermission(target.id, user, 'work_items', 'create');
+          await assertMcpAllowed(target.id, request.headers);
+          assertWritable(target, request.method);
+          return { target };
         },
       };
     },
@@ -255,6 +281,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
           if (entry.actorUserId !== requireUser(user).id)
             await assertProjectOwner(entry.projectId, user);
           await assertMcpAllowed(entry.projectId, request.headers);
+          await assertProjectWritable(entry.projectId, request.method);
           return { projectId: entry.projectId };
         },
       };
@@ -351,7 +378,11 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
         disposition(body),
         requireUser(user).id,
       );
-      const { deleted, attachments } = await bulkDeleteIssues(project.id, body.ids);
+      const { deleted, attachments } = await bulkDeleteIssues(
+        project.id,
+        body.ids,
+        requireUser(user).id,
+      );
       await purgeObjects([...fromSubtasks, ...attachments]);
       return { deleted };
     },
@@ -473,16 +504,22 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
   )
 
   // Reads an issue by its project-scoped sequence number (the human number in a
-  // URL like /project/MKT/issue/42), with its custom field values. Backs the
+  // URL like /acme/issue/MKT-42), with its custom field values. Backs the
   // identifier-based issue page. Same read permission as the by-id read.
   .get(
     '/projects/:projectKey/issues/:sequenceNumber',
-    async ({ project, params }) => {
+    async ({ project, params, user, request }) => {
       const issue = await getIssueBySequence(project.id, params.sequenceNumber);
       if (!issue) throw new HttpError(404, 'Issue not found');
+      // An old number of a moved issue resolves to it in the project it is in now,
+      // which the caller must be able to read as well.
+      if (issue.projectId !== project.id) {
+        await assertPermission(issue.projectId, user, 'work_items', 'read');
+        await assertMcpAllowed(issue.projectId, request.headers);
+      }
       const fields = await getIssueFieldValues(issue.id);
       const links = await listIssueLinks(issue.id);
-      const watchers = await listIssueWatchers(project.id, issue.id);
+      const watchers = await listIssueWatchers(issue.projectId, issue.id);
       const parent = await getParentRef(issue.parentId);
       const subtasks = await listSubtasks(issue.id);
       const checklists = await listChecklists(issue.id);
@@ -566,12 +603,36 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     },
   )
 
+  // Moves the issue, with its subtasks, to another project of the same team. It takes
+  // the next number there; the old identifier keeps resolving to it.
+  .post(
+    '/issues/:issueId/move',
+    async ({ params, body, target, user }) =>
+      moveIssue(params.issueId, target, body.columnId, requireUser(user).id),
+    {
+      params: issueParams,
+      body: moveIssueBody,
+      workItem: 'delete',
+      moveTarget: true,
+      response: { 200: IssueResponse, ...commonErrors, ...errors(409) },
+      detail: {
+        summary: 'Move an issue to another project',
+        description:
+          'Move an issue, with its subtasks, to another project of the same team. Each ' +
+          'moved issue gets a new number in the target project and its old identifier ' +
+          'still resolves. Column, type, labels and custom fields are matched by name; ' +
+          'cycle, initiative and links to issues left behind are dropped.',
+        ...mcpTool('move_issue'),
+      },
+    },
+  )
+
   .get(
     '/issues/:issueId/development/repositories',
     async ({ projectId }) => listDevelopmentRepositories(projectId),
     {
       params: issueParams,
-      developmentIntegration: 'edit',
+      developmentRepositories: 'edit',
       response: { 200: t.Array(DevelopmentRepositoryResponse), ...accessErrors },
       detail: {
         summary: 'List repositories available to an issue',
@@ -594,7 +655,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       params: issueDevelopmentRepositoryParams,
       query: issueDevelopmentListQuery,
-      developmentIntegration: 'edit',
+      developmentRepositories: 'edit',
       response: { 200: LinkablePullRequestPageResponse, ...commonErrors },
       detail: {
         summary: 'List pull requests available to an issue',
@@ -610,7 +671,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       params: issueDevelopmentRepositoryParams,
       query: issueDevelopmentListQuery,
-      developmentIntegration: 'edit',
+      developmentRepositories: 'edit',
       response: { 200: DevelopmentBranchPageResponse, ...commonErrors },
       detail: {
         summary: 'List repository branches available to an issue',
@@ -654,7 +715,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       params: issueParams,
       body: linkIssueDevelopmentBody,
-      developmentIntegration: 'edit',
+      developmentRepositories: 'edit',
       response: {
         200: DevelopmentLinkResponse,
         201: DevelopmentLinkResponse,
@@ -690,7 +751,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       params: issueParams,
       body: createIssuePullRequestBody,
-      developmentIntegration: 'edit',
+      developmentRepositories: 'edit',
       response: { 201: DevelopmentLinkResponse, ...commonErrors, ...errors(409) },
       detail: {
         summary: 'Create a pull request for an issue',
@@ -732,7 +793,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
         disposition(query),
         requireUser(user).id,
       );
-      const attachments = await deleteIssue(params.issueId);
+      const attachments = await deleteIssue(params.issueId, requireUser(user).id);
       if (!attachments) throw new HttpError(404, 'Issue not found');
       await purgeObjects([...fromSubtasks, ...attachments]);
       return noContent();
@@ -1208,15 +1269,15 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     },
   )
 
-  // One page of an issue's timeline, newest first: comments and change-log
-  // activity merged in issue_activity. `limit` (default 25) and an opaque
-  // `cursor` (the JSON-encoded nextCursor from the previous page) drive keyset
-  // pagination. The response is { items, nextCursor }, and nextCursor is null on the
-  // last page.
+  // One page of an issue's timeline: comments and change-log activity merged in
+  // issue_activity, newest first unless `order` is 'asc', narrowed by `filter`.
+  // `limit` (default 25) and an opaque `cursor` (the JSON-encoded nextCursor from the
+  // previous page) drive keyset pagination. The response is { items, nextCursor }, and
+  // nextCursor is null on the last page.
   .get(
     '/issues/:issueId/feed',
     async ({ params, query }) =>
-      listFeed(params.issueId, { before: feedCursor(query.cursor), limit: query.limit }),
+      listFeed(params.issueId, { ...query, cursor: feedCursor(query.cursor) }),
     {
       params: issueParams,
       query: feedPageQuery,
@@ -1226,7 +1287,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
         summary: 'Get an issue feed',
         description:
           "Get an issue's activity feed by its numeric id: comments and change-log " +
-          'entries, newest first. The page holds the top-level entries; the replies of ' +
+          'entries, newest first by default. The page holds the top-level entries; the replies of ' +
           "its comments come with them, each carrying its parent's id in replyToId.",
         ...mcpTool('list_issue_activity'),
       },
@@ -1238,7 +1299,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
   .get(
     '/issues/:issueId/feed/grouped',
     async ({ params, query }) =>
-      listGroupedFeed(params.issueId, { before: feedCursor(query.cursor), limit: query.limit }),
+      listGroupedFeed(params.issueId, { ...query, cursor: feedCursor(query.cursor) }),
     {
       params: issueParams,
       query: feedPageQuery,
@@ -1251,6 +1312,17 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
       },
     },
   )
+
+  // The number of entries behind each feed filter, for the tabs of the activity log.
+  .get('/issues/:issueId/feed/counts', async ({ params }) => countFeed(params.issueId), {
+    params: issueParams,
+    workItem: 'read',
+    response: { 200: FeedCountsResponse, ...commonErrors },
+    detail: {
+      summary: 'Count an issue feed',
+      description: "Count an issue's comments, change-log entries and time entries.",
+    },
+  })
 
   // The stretches the issue spent in one column, oldest first, with the duration of
   // each. Entry-free and unpaged: the change log holds a handful of status entries,

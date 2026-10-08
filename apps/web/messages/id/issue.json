@@ -5,6 +5,9 @@
   "openAsPage": "Buka sebagai halaman",
   "titlePlaceholder": "Judul issue",
   "noActivity": "Belum ada aktivitas.",
+  "noComments": "Belum ada komentar.",
+  "noHistory": "Belum ada perubahan.",
+  "noWorklog": "Belum ada waktu yang dicatat.",
   "noActivityInStretch": "Tidak ada aktivitas pada rentang ini.",
   "activityLoadFailed": "Tidak dapat memuat aktivitas.",
   "fields": {
@@ -47,6 +50,12 @@
     "dueDate": "Tenggat waktu",
     "clearDueDate": "Hapus tenggat waktu",
     "labels": "Label",
+    "copyId": "Salin ID",
+    "copyShortLink": "Salin tautan pendek",
+    "copyFullUrl": "Salin URL lengkap",
+    "copyTitle": "Salin judul",
+    "copyDescription": "Salin deskripsi",
+    "copyBranch": "Salin nama branch",
     "copyPrompt": "Salin prompt",
     "restore": "Pulihkan",
     "archive": "Arsipkan",
@@ -54,6 +63,7 @@
     "noDelegate": "Tanpa delegasi",
     "noInitiative": "Tanpa inisiatif",
     "noCycle": "Tanpa cycle",
+    "copyFailed": "Gagal menyalin ke papan klip",
     "promptCopied": "Prompt disalin ke papan klip"
   },
   "commands": {
@@ -98,7 +108,8 @@
     "restore": "Pulihkan issue",
     "archive": "Arsipkan issue",
     "delete": "Hapus issue",
-    "shareIssue": "Bagikan issue"
+    "shareIssue": "Bagikan issue",
+    "move": "Pindahkan ke proyek lain"
   },
   "actions": {
     "deleteTitle": "Hapus issue",
@@ -107,7 +118,16 @@
     "cannotBeUndone": "Tindakan ini tidak dapat dibatalkan.",
     "deleteDescription": "Hapus {issue}? Tindakan ini akan menghapus issue, komentar, aktivitas, dan lampirannya.",
     "archiveDescription": "Arsipkan {issue}? Issue ini akan meninggalkan papan dan dapat dipulihkan nanti.",
-    "applyDescription": "Terapkan <v>{action}</v> pada issue ini?"
+    "applyDescription": "Terapkan <v>{action}</v> pada issue ini?",
+    "moveTitle": "Pindahkan isu",
+    "move": "Pindahkan",
+    "moveDescription": "Pindahkan {issue} ke proyek lain di tim ini. Isu mendapat nomor baru di sana, dan tautan lama tetap membukanya.",
+    "moveSubtasks": "{count, plural, other {# subtugasnya ikut dipindahkan.}}",
+    "moveProject": "Proyek",
+    "moveChooseProject": "Pilih proyek",
+    "moveColumn": "Status",
+    "moveColumnMatching": "Status yang sesuai",
+    "moveCarriedOver": "Tipe, label, dan bidang kustom dipertahankan jika proyek tujuan memiliki yang bernama sama. Siklus, inisiatif, dan tautan ke isu di proyek ini dihapus."
   },
   "create": {
     "title": "Issue baru",
@@ -140,6 +160,8 @@
     "download": "Unduh",
     "downloadFile": "Unduh {name}",
     "deleteFile": "Hapus {name}",
+    "deleteTitle": "Hapus lampiran",
+    "deleteConfirmation": "Hapus {name}? Berkas ini juga akan dihapus dari deskripsi di mana pun disematkan. Tindakan ini tidak dapat dibatalkan.",
     "preview": "Pratinjau {name}",
     "remove": "Hapus {name}",
     "removeShort": "Hapus",
@@ -196,7 +218,11 @@
     "detachFromParent": "Lepaskan dari {parent}",
     "subtaskOf": "Subtugas dari {issue}",
     "existingIssue": "Issue yang ada",
-    "searchPrompt": "Cari issue untuk ditambahkan sebagai subtugas…"
+    "searchPrompt": "Cari issue untuk ditambahkan sebagai subtugas…",
+    "filter": "Filter menurut status",
+    "hiding": "Menyembunyikan {states}",
+    "clearFilter": "Hapus filter",
+    "allHidden": "Semua subtugas disembunyikan oleh filter."
   },
   "subtaskDisposal": {
     "intro": "{issues, plural, one {Issue ini memiliki} other {Issue tersebut memiliki}} {count, plural, one {# subtugas} other {# subtugas}}.",
@@ -325,7 +351,8 @@
     "worklogChanged": "mengubah catatan <v>{from}</v> pada <v>{fromDate}</v> menjadi <v>{to}</v> pada <v>{date}</v>",
     "worklogRemoved": "menghapus catatan <v>{time}</v> pada <v>{date}</v>",
     "commentEdited": "mengedit komentar",
-    "commentDeleted": "menghapus komentar"
+    "commentDeleted": "menghapus komentar",
+    "issueMoved": "memindahkan isu ini dari <v>{from}</v> ke <v>{to}</v>"
   },
   "development": {
     "title": "Pengembangan",
@@ -396,8 +423,16 @@
   },
   "archived": "Diarsipkan",
   "activityHeading": "Aktivitas",
-  "feedFlat": "Datar",
-  "feedGrouped": "Dikelompokkan",
+  "feedTabAll": "Semua",
+  "feedTabComments": "Komentar",
+  "feedTabHistory": "Riwayat",
+  "feedTabWorklog": "Catatan waktu",
+  "feedStatus": "Status",
+  "feedGroupByStatus": "Kelompokkan menurut status",
+  "feedNewest": "Terbaru",
+  "feedOldest": "Terlama",
+  "feedChangeOrder": "Ubah urutan",
+  "feedRunToggle": "Tampilkan perubahan serupa",
   "shareUnavailable": "Issue yang dibagikan ini tidak tersedia. Tautan mungkin telah dicabut.",
   "fieldSelects": {
     "changeState": "Ubah status…",

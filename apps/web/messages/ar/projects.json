@@ -3,6 +3,10 @@
   "copyAction": "نسخ المشروع",
   "deleteAction": "حذف المشروع",
   "leaveAction": "مغادرة المشروع",
+  "archiveAction": "أرشفة المشروع",
+  "restoreAction": "استعادة المشروع",
+  "archived": "تمت أرشفة {name}",
+  "restored": "تمت استعادة {name}",
   "deleteDialog": {
     "title": "حذف {name}؟",
     "confirm": "حذف نهائي",
@@ -16,6 +20,8 @@
   },
   "editDialog": {
     "title": "تعديل المشروع",
+    "key": "المفتاح",
+    "keyHint": "تتطلب روابط المهام مفتاحًا من أحرف كبيرة وأرقام يبدأ بحرف. بعد حفظه، لا يمكن تغيير المفتاح.",
     "name": "الاسم",
     "description": "الوصف",
     "submit": "حفظ"

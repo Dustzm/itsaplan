@@ -21,6 +21,7 @@ import { HttpError } from '#shared/lib';
 import {
   DEFAULT_COLUMNS,
   getProjectById,
+  joinTeamAsCreator,
   mapProject,
   targetTeam,
   type ProjectRow,
@@ -97,7 +98,8 @@ const DEFAULT_INCLUDE: CopyProjectInclude = {
 
 // Resolves the selection and force-enables the dependencies each entity needs to be
 // copied correctly. Views/actions remap the ids of states, types, labels and fields,
-// so those must be copied too; a schedule cannot exist without its agent.
+// so those must be copied too; a schedule cannot exist without its agent, and a status
+// schedule without its state.
 function normalizeInclude(raw?: Partial<CopyProjectInclude>): CopyProjectInclude {
   const inc: CopyProjectInclude = raw ? { ...ALL_FALSE, ...raw } : { ...DEFAULT_INCLUDE };
   if (inc.customFields) inc.issueTypes = true;
@@ -112,7 +114,10 @@ function normalizeInclude(raw?: Partial<CopyProjectInclude>): CopyProjectInclude
     inc.issueTypes = true;
     inc.labels = true;
   }
-  if (inc.schedules) inc.agents = true;
+  if (inc.schedules) {
+    inc.agents = true;
+    inc.states = true;
+  }
   return inc;
 }
 
@@ -288,8 +293,10 @@ export async function copyProject(
     const proj = await mapProject({
       ...row,
       teamName: ownerTeam.name,
+      teamSlug: ownerTeam.slug,
       teamMcpEnabled: ownerTeam.mcpEnabled,
     });
+    await joinTeamAsCreator(tx, ownerTeam.id, ownerId);
     await tx.insert(projectMember).values({ projectId: proj.id, userId: ownerId, role: 'owner' });
 
     // States (columns). When copied, every source column is carried over so views,
@@ -549,14 +556,14 @@ export async function copyProject(
               content: replaceAssetReferences(
                 source.content,
                 source.id,
-                input.key,
+                proj,
                 targetDocumentId,
                 publicIds,
               ),
               contentJson: replaceAssetReferences(
                 source.contentJson,
                 source.id,
-                input.key,
+                proj,
                 targetDocumentId,
                 publicIds,
               ),
@@ -672,10 +679,13 @@ export async function copyProject(
         agentId: s.agentId,
         actorUserId: ownerId,
         name: s.name,
+        type: s.type,
         prompt: s.prompt,
         cron: s.cron,
+        nextRunAt: s.cron === null ? null : nextCronRun(s.cron),
+        columnId: s.columnId === null ? null : maps.column.get(s.columnId)!,
+        delaySec: s.delaySec,
         status: s.status,
-        nextRunAt: nextCronRun(s.cron),
       });
     }
   }

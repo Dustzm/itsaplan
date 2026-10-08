@@ -1,13 +1,12 @@
 import { documentCollaborationRoutes } from './collaboration-routes';
 import { Elysia, t } from 'elysia';
 import { authContext } from '#shared/auth-context';
-import { assertPermission, requireUser } from '#shared/access';
+import { assertPermission, getProjectAccess, requireUser } from '#shared/access';
 import { guards } from '#shared/guards';
 import { noContent } from '#shared/http';
 import { HttpError } from '#shared/lib';
 import { mcpTool } from '#mcp/generate';
 import { commonErrors, errors } from '#shared/responses';
-import { getMembership } from '#modules/members/service';
 import { rawAttachmentQuery } from '#modules/attachments/model';
 import {
   assertAttachmentUploadAllowed,
@@ -73,6 +72,7 @@ import {
   transferDocumentOwnership,
   updateDocument,
   type DocumentAssetRow,
+  documentAssetPath,
 } from './service';
 import {
   addDocumentInitiativeLink,
@@ -84,7 +84,11 @@ import {
   removeDocumentIssueLink,
 } from './links';
 
-function documentAssetDto(projectKey: string, documentId: number, asset: DocumentAssetRow) {
+function documentAssetDto(
+  project: { teamId: number; key: string },
+  documentId: number,
+  asset: DocumentAssetRow,
+) {
   return {
     id: asset.publicId,
     filename: asset.filename,
@@ -92,12 +96,12 @@ function documentAssetDto(projectKey: string, documentId: number, asset: Documen
     sizeBytes: asset.sizeBytes,
     uploadedByUserId: asset.uploadedByUserId,
     createdAt: asset.createdAt,
-    url: `/projects/${encodeURIComponent(projectKey)}/documents/${documentId}/assets/${asset.publicId}/raw`,
+    url: documentAssetPath(project, documentId, asset.publicId),
   };
 }
 
 async function isProjectOwner(projectId: number, userId: string): Promise<boolean> {
-  return (await getMembership(projectId, userId)) === 'owner';
+  return (await getProjectAccess(projectId, userId))?.role === 'owner';
 }
 
 export const documentRoutes = new Elysia({
@@ -322,7 +326,7 @@ export const documentRoutes = new Elysia({
     async ({ project, params, user }) => {
       const assets = await listDocumentAssets(project.id, params.documentId, requireUser(user).id);
       if (!assets) throw new HttpError(404, 'Document not found');
-      return assets.map((asset) => documentAssetDto(project.key, params.documentId, asset));
+      return assets.map((asset) => documentAssetDto(project, params.documentId, asset));
     },
     {
       permission: ['documents', 'read'],
@@ -362,7 +366,7 @@ export const documentRoutes = new Elysia({
         });
         if (!asset) throw new HttpError(404, 'Document not found');
         set.status = 201;
-        return documentAssetDto(project.key, params.documentId, asset);
+        return documentAssetDto(project, params.documentId, asset);
       } catch (error) {
         await deleteAttachmentObject(key);
         throw error;

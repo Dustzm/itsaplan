@@ -5,6 +5,9 @@
   "openAsPage": "在完整页面中打开",
   "titlePlaceholder": "工作项标题",
   "noActivity": "暂无活动记录。",
+  "noComments": "暂无评论。",
+  "noHistory": "暂无变更。",
+  "noWorklog": "暂无工时记录。",
   "noActivityInStretch": "此时间段内没有活动。",
   "activityLoadFailed": "无法加载活动。",
   "fields": {
@@ -47,6 +50,12 @@
     "dueDate": "截止日期",
     "clearDueDate": "清除截止日期",
     "labels": "标签",
+    "copyId": "复制 ID",
+    "copyShortLink": "复制短链接",
+    "copyFullUrl": "复制完整网址",
+    "copyTitle": "复制标题",
+    "copyDescription": "复制描述",
+    "copyBranch": "复制分支名称",
     "copyPrompt": "复制提示词",
     "restore": "恢复",
     "archive": "归档",
@@ -54,6 +63,7 @@
     "noDelegate": "无执行代理",
     "noInitiative": "无计划",
     "noCycle": "无周期",
+    "copyFailed": "无法复制到剪贴板",
     "promptCopied": "提示词已复制到剪贴板"
   },
   "commands": {
@@ -98,7 +108,8 @@
     "restore": "恢复工作项",
     "archive": "归档工作项",
     "delete": "删除工作项",
-    "shareIssue": "共享工作项"
+    "shareIssue": "共享工作项",
+    "move": "移动到其他项目"
   },
   "actions": {
     "deleteTitle": "删除工作项",
@@ -107,7 +118,16 @@
     "cannotBeUndone": "此操作无法撤销。",
     "deleteDescription": "删除 {issue}？这会删除该工作项及其评论、活动和附件。",
     "archiveDescription": "归档 {issue}？该工作项将离开看板，之后可以恢复。",
-    "applyDescription": "将 <v>{action}</v> 应用于此工作项？"
+    "applyDescription": "将 <v>{action}</v> 应用于此工作项？",
+    "moveTitle": "移动事项",
+    "move": "移动",
+    "moveDescription": "将 {issue} 移动到本团队的其他项目。它会在那里获得新编号，旧链接仍可打开它。",
+    "moveSubtasks": "{count, plural, other {它的 # 个子任务会一起移动。}}",
+    "moveProject": "项目",
+    "moveChooseProject": "选择项目",
+    "moveColumn": "状态",
+    "moveColumnMatching": "匹配的状态",
+    "moveCarriedOver": "目标项目中有同名的类型、标签和自定义字段时会保留。周期、计划以及与本项目事项的关联会被移除。"
   },
   "create": {
     "title": "新建工作项",
@@ -140,6 +160,8 @@
     "download": "下载",
     "downloadFile": "下载 {name}",
     "deleteFile": "删除 {name}",
+    "deleteTitle": "删除附件",
+    "deleteConfirmation": "删除 {name}？它也会从描述中所有嵌入的位置移除。此操作无法撤销。",
     "preview": "预览 {name}",
     "remove": "移除 {name}",
     "removeShort": "移除",
@@ -196,7 +218,11 @@
     "detachFromParent": "从 {parent} 分离",
     "subtaskOf": "{issue} 的子任务",
     "existingIssue": "现有工作项",
-    "searchPrompt": "搜索要添加为子任务的工作项…"
+    "searchPrompt": "搜索要添加为子任务的工作项…",
+    "filter": "按状态筛选",
+    "hiding": "已隐藏：{states}",
+    "clearFilter": "清除筛选",
+    "allHidden": "所有子任务都被筛选隐藏了。"
   },
   "subtaskDisposal": {
     "intro": "{issues, plural, other {这些工作项包含}} {count, plural, other {# 个子任务}}。",
@@ -325,7 +351,8 @@
     "worklogChanged": "将 <v>{fromDate}</v> 的 <v>{from}</v> 改为 <v>{date}</v> 的 <v>{to}</v>",
     "worklogRemoved": "删除了 <v>{date}</v> 的 <v>{time}</v>",
     "commentEdited": "编辑了一条评论",
-    "commentDeleted": "删除了一条评论"
+    "commentDeleted": "删除了一条评论",
+    "issueMoved": "将此事项从 <v>{from}</v> 移动到 <v>{to}</v>"
   },
   "development": {
     "title": "开发",
@@ -396,8 +423,16 @@
   },
   "archived": "已归档",
   "activityHeading": "活动记录",
-  "feedFlat": "平铺",
-  "feedGrouped": "分组",
+  "feedTabAll": "全部",
+  "feedTabComments": "评论",
+  "feedTabHistory": "历史",
+  "feedTabWorklog": "工时记录",
+  "feedStatus": "状态",
+  "feedGroupByStatus": "按状态分组",
+  "feedNewest": "最新优先",
+  "feedOldest": "最早优先",
+  "feedChangeOrder": "切换顺序",
+  "feedRunToggle": "显示类似的变更",
   "shareUnavailable": "此共享工作项不可用，链接可能已撤销。",
   "fieldSelects": {
     "changeState": "更改状态…",

@@ -143,12 +143,18 @@ describe('MCP extension tools', () => {
     },
   );
 
-  it('uploads a base64 document asset and reports invalid base64', async () => {
+  it('uploads an asset to the named team, returns a stable URL and rejects invalid base64', async () => {
     const owner = await signUpTestUser();
     const asOwner = authedApi(owner.cookie);
     await asOwner.projects.post({ key: 'MKT', name: 'Marketing' });
-    const page = (await asOwner.projects({ projectKey: 'MKT' }).documents.post({ title: 'Guide' }))
-      .data!;
+    const team = (await asOwner.teams.post({ name: 'Second', slug: 'second' })).data!;
+    const project = await asOwner.teams({ teamId: team.id }).projects.post({
+      key: 'MKT',
+      name: 'Second marketing',
+    });
+    expect(project.status).toBe(201);
+    const projectKey = 'second.MKT';
+    const page = (await asOwner.projects({ projectKey }).documents.post({ title: 'Guide' })).data!;
     const apiKey = await createApiKey(owner.userId);
     const credential = { kind: 'api-key' as const, apiKey };
     const upload = tool('upload_document_asset');
@@ -156,7 +162,7 @@ describe('MCP extension tools', () => {
       app,
       upload,
       {
-        projectKey: 'MKT',
+        projectKey,
         documentId: page.id,
         filename: '../diagram.png',
         contentBase64: Buffer.from('asset bytes').toString('base64'),
@@ -173,18 +179,19 @@ describe('MCP extension tools', () => {
       contentType: 'image/png',
       sizeBytes: 11,
     });
-    const raw = await asOwner
-      .projects({ projectKey: 'MKT' })
-      .documents({ documentId: page.id })
-      .assets({ publicId: asset.id })
-      .raw.get();
-    expect(String(raw.data)).toBe('asset bytes');
+    expect(asset.url).toBe(`/projects/${team.id}.MKT/documents/${page.id}/assets/${asset.id}/raw`);
+    expect((await asOwner.teams({ teamId: team.id }).patch({ slug: 'renamed' })).status).toBe(200);
+    const raw = await app.handle(
+      new Request(`http://localhost${asset.url}`, { headers: { 'x-api-key': apiKey } }),
+    );
+    expect(raw.status).toBe(200);
+    expect(await raw.text()).toBe('asset bytes');
 
     const invalid = await dispatchTool(
       app,
       upload,
       {
-        projectKey: 'MKT',
+        projectKey: `${team.id}.MKT`,
         documentId: page.id,
         filename: 'invalid.png',
         contentBase64: 'not base64',

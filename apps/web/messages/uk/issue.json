@@ -5,6 +5,9 @@
   "openAsPage": "Відкрити як сторінку",
   "titlePlaceholder": "Назва задачі",
   "noActivity": "Активності ще немає.",
+  "noComments": "Коментарів ще немає.",
+  "noHistory": "Змін ще немає.",
+  "noWorklog": "Час ще не списано.",
   "noActivityInStretch": "Немає активності за цей період.",
   "activityLoadFailed": "Не вдалося завантажити активність.",
   "fields": {
@@ -47,6 +50,12 @@
     "dueDate": "Дедлайн",
     "clearDueDate": "Прибрати дедлайн",
     "labels": "Мітки",
+    "copyId": "Скопіювати ID",
+    "copyShortLink": "Скопіювати коротке посилання",
+    "copyFullUrl": "Скопіювати повне посилання",
+    "copyTitle": "Скопіювати назву",
+    "copyDescription": "Скопіювати опис",
+    "copyBranch": "Скопіювати назву гілки",
     "copyPrompt": "Скопіювати промпт",
     "restore": "Відновити",
     "archive": "Архівувати",
@@ -54,6 +63,7 @@
     "noDelegate": "Без делегата",
     "noInitiative": "Без ініціативи",
     "noCycle": "Без циклу",
+    "copyFailed": "Не вдалося скопіювати",
     "promptCopied": "Промпт скопійовано"
   },
   "commands": {
@@ -98,7 +108,8 @@
     "restore": "Відновити задачу",
     "archive": "Архівувати задачу",
     "delete": "Видалити задачу",
-    "shareIssue": "Поділитися задачею"
+    "shareIssue": "Поділитися задачею",
+    "move": "Перенести в інший проєкт"
   },
   "actions": {
     "deleteTitle": "Видалити задачу",
@@ -107,7 +118,16 @@
     "cannotBeUndone": "Цю дію не можна скасувати.",
     "deleteDescription": "Видалити {issue}? Разом з нею буде видалено коментарі, активність і вкладення.",
     "archiveDescription": "Архівувати {issue}? Вона зникне з дошки, її можна буде відновити пізніше.",
-    "applyDescription": "Застосувати <v>{action}</v> до цієї задачі?"
+    "applyDescription": "Застосувати <v>{action}</v> до цієї задачі?",
+    "moveTitle": "Перенести задачу",
+    "move": "Перенести",
+    "moveDescription": "Перенести {issue} в інший проєкт цієї команди. Там задача отримає новий номер, а старе посилання й далі її відкриватиме.",
+    "moveSubtasks": "{count, plural, one {# підзадача переноситься разом із нею.} few {# підзадачі переносяться разом із нею.} many {# підзадач переносяться разом із нею.} other {# підзадачі переносяться разом із нею.}}",
+    "moveProject": "Проєкт",
+    "moveChooseProject": "Виберіть проєкт",
+    "moveColumn": "Статус",
+    "moveColumnMatching": "Відповідний статус",
+    "moveCarriedOver": "Тип, мітки та користувацькі поля зберігаються, якщо в цільовому проєкті є такі самі за назвою. Цикл, ініціатива та зв’язки із задачами цього проєкту видаляються."
   },
   "create": {
     "title": "Нова задача",
@@ -140,6 +160,8 @@
     "download": "Завантажити",
     "downloadFile": "Завантажити {name}",
     "deleteFile": "Видалити {name}",
+    "deleteTitle": "Видалити вкладення",
+    "deleteConfirmation": "Видалити {name}? Файл також буде прибрано з опису всюди, де він вбудований. Дію неможливо скасувати.",
     "preview": "Переглянути {name}",
     "remove": "Прибрати {name}",
     "removeShort": "Прибрати",
@@ -196,7 +218,11 @@
     "detachFromParent": "Відв'язати від {parent}",
     "subtaskOf": "Підзадача {issue}",
     "existingIssue": "Наявна задача",
-    "searchPrompt": "Пошук задач, щоб додати підзадачею…"
+    "searchPrompt": "Пошук задач, щоб додати підзадачею…",
+    "filter": "Фільтр за статусом",
+    "hiding": "Приховано: {states}",
+    "clearFilter": "Скинути фільтр",
+    "allHidden": "Усі підзадачі приховані фільтром."
   },
   "subtaskDisposal": {
     "intro": "{issues, plural, one {Ця задача має} other {Ці задачі мають}} {count, plural, one {# підзадачу} few {# підзадачі} many {# підзадач} other {# підзадачі}}.",
@@ -325,7 +351,8 @@
     "worklogChanged": "змінив(-ла) запис <v>{from}</v> за <v>{fromDate}</v> на <v>{to}</v> за <v>{date}</v>",
     "worklogRemoved": "видалив(-ла) запис <v>{time}</v> за <v>{date}</v>",
     "commentEdited": "змінив коментар",
-    "commentDeleted": "видалив коментар"
+    "commentDeleted": "видалив коментар",
+    "issueMoved": "переніс задачу з <v>{from}</v> до <v>{to}</v>"
   },
   "development": {
     "title": "Розробка",
@@ -396,8 +423,16 @@
   },
   "archived": "Архівовано",
   "activityHeading": "Активність",
-  "feedFlat": "Списком",
-  "feedGrouped": "За статусами",
+  "feedTabAll": "Усі",
+  "feedTabComments": "Коментарі",
+  "feedTabHistory": "Історія",
+  "feedTabWorklog": "Облік часу",
+  "feedStatus": "Статуси",
+  "feedGroupByStatus": "Групувати за статусами",
+  "feedNewest": "Спочатку нові",
+  "feedOldest": "Спочатку старі",
+  "feedChangeOrder": "Змінити порядок",
+  "feedRunToggle": "Показати схожі зміни",
   "shareUnavailable": "Ця спільна задача недоступна. Можливо, посилання відкликали.",
   "fieldSelects": {
     "changeState": "Змінити статус…",

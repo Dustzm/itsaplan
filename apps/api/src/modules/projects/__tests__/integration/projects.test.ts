@@ -14,8 +14,8 @@ import { clearLimits, setLimits } from '#tests/helpers/limits';
 // See apps/api/AGENTS.md "Tests" for the setup.
 //
 // The projects feature owns five routes: list, create, copy, the full work-items
-// view, and delete. createProject seeds five default columns (one per state type);
-// it seeds no issue types or assignees.
+// view, and delete. createProject seeds five default columns (one per state type)
+// and any agents selected as the team's defaults.
 
 // createProject seeds one column per state type; a new project always has these
 // five and nothing else.
@@ -533,6 +533,41 @@ describe('projects', () => {
       expect(filters.conditions[0].values).toEqual([dstReview.id]);
     });
 
+    it("points a copied status schedule at the copy's own column", async () => {
+      const { api } = await signUpClient();
+      await api.projects.post({ key: 'SRC', name: 'Source' });
+      const agent = (
+        await createAgent(api, 'SRC', { name: 'Bot', username: 'bot', kind: 'internal' })
+      ).data!.agent;
+      const started = (await viewOf(api, 'SRC')).data!.columns.find(
+        (c) => c.stateType === 'started',
+      )!;
+      await api.projects({ projectKey: 'SRC' })['agent-schedules'].post({
+        agentId: agent.id,
+        name: 'Analysis',
+        type: 'status',
+        columnId: started.id,
+        delaySec: 60,
+      });
+
+      await api.projects({ projectKey: 'SRC' }).copy.post({
+        key: 'DST',
+        name: 'Destination',
+        include: { schedules: true },
+      });
+
+      const dstStarted = (await viewOf(api, 'DST')).data!.columns.find(
+        (c) => c.name === started.name,
+      )!;
+      const copied = await api.projects({ projectKey: 'DST' })['agent-schedules'].get();
+      expect(copied.data!.items).toHaveLength(1);
+      expect(copied.data!.items[0]).toMatchObject({
+        type: 'status',
+        columnId: dstStarted.id,
+        delaySec: 60,
+      });
+    });
+
     it("draws on the target team's roles, which the source team's do not reach", async () => {
       const { api } = await signUpClient();
       await api.projects.post({ key: 'SRC', name: 'Source' });
@@ -579,7 +614,7 @@ describe('projects', () => {
       const { api } = await signUpClient();
       await api.projects.post({ key: 'SRC', name: 'Source' });
       await createAgent(api, 'SRC', { name: 'Ext', username: 'ext', kind: 'external' });
-      const target = (await api.teams.post({ name: 'Other Team' })).data!;
+      const target = (await api.teams.post({ name: 'Other Team', slug: 'other-team' })).data!;
       const sourceId = await projectIdOf(api, 'SRC');
 
       await api

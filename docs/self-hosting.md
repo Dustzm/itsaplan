@@ -19,16 +19,16 @@ The stack refuses to start while one of these is missing:
 | `POSTGRES_PASSWORD`     | `openssl rand -base64 32`                  |
 | `BETTER_AUTH_SECRET`    | `openssl rand -base64 32`                  |
 | `APP_ENCRYPTION_KEY`    | `openssl rand -base64 32`                  |
-| `S3_ACCESS_KEY_ID`      | the MinIO root user, any name over 3 chars |
+| `S3_ACCESS_KEY_ID`      | the RustFS root user, any name over 3 chars |
 | `S3_SECRET_ACCESS_KEY`  | `openssl rand -base64 32`                  |
 
 On a machine with [Bun](https://bun.sh), the setup script generates them instead. Run
 `bun install && bun run setup`, answer **Generate env**, and answer no when it offers to
 write the files: it prints `.env` and `apps/web/.env` for you to copy onto the server.
 
-That starts the whole stack: Postgres, MinIO, api, worker, bot, and web. The four services
+That starts the whole stack: Postgres, RustFS, api, worker, bot, and web. The four services
 run from the images published on each release. `VERSION` in `.env` pins one release instead
-of the newest. The api applies migrations when it starts, and the first account you register
+of the newest. The `migrate` service applies migrations before the api starts, and the first account you register
 becomes the instance admin.
 
 `.env.example` documents every variable, including the optional ones: legal document URLs,
@@ -66,20 +66,29 @@ instance cannot be left with no way in.
 
 ## Provisioning with SCIM
 
-An identity provider can create, update and deactivate accounts over SCIM 2.0, and grant
-project access through its groups.
+An identity provider can add people to a workspace and remove them over SCIM 2.0, and grant
+project access through its groups. Provisioning is a setting of the workspace, and only its
+owner can change it.
 
-1. In god mode, open **Integrations → SCIM**, generate a token and copy it — it is shown
+1. In the workspace settings, open **SCIM**, generate a token and copy it — it is shown
    once — then turn provisioning on.
 2. Point your provider's SCIM application at the endpoint the page shows
    (`<API_URL>/scim/v2`), authenticating with `Authorization: Bearer <token>`.
 3. Push users, and groups if you use them.
 
-Deactivating someone at the provider (`active: false`) ends their sessions and refuses
-their API keys; reactivating restores them with their projects intact. The instance owner's
-own account is outside SCIM's reach — a provisioning run can neither change nor deactivate
-it, and a repeated create for an address it already provisioned answers "already exists"
-rather than overwriting the link back to the provider.
+An account belongs to the person, not to the workspace: one person can be in the teams of
+several workspaces, and each workspace's provider only decides whether they are in its own.
+The provider sees the people it created or linked and the people in the workspace's teams. A
+create for an address that already has an account links that account instead of making a
+second one; a name or address the provider sends is accepted and left as the account has it.
+
+Deactivating someone at the provider (`active: false`) or deleting them takes them out of
+every team and project of the workspace, including the ones they joined through an invite. A
+team or project they were the only owner of passes to the workspace owner. The account, its
+sign-in and the person's other workspaces are not touched. Reactivating gives back the
+projects their groups grant; memberships from invites do not come back. The instance owner and
+the workspace owner are outside SCIM's reach, and a repeated create for an address the
+provider already linked answers "already exists" rather than overwriting the link.
 
 A pushed group grants nothing until you say what it is for: on the same page, open a group
 and add the projects its members should join, and the role they join on. A project belongs
@@ -108,17 +117,28 @@ docker compose up -d
 `git pull` updates the compose file. The services come from the registry. Changing `API_URL`
 or `APP_URL` afterwards only needs `docker compose up -d`.
 
-The api applies its migrations on startup, so an upgrade needs no database step. Before
-it applies anything it dumps the database into the `db-backups` volume (`/backups` in the
-api container) and refuses to start if that dump fails — a release whose migrations
+The one-shot `migrate` service applies the migrations on every `docker compose up -d`, and
+api, worker and bot start only after it succeeds, so an upgrade needs no database step.
+Before it applies anything it dumps the database into the `db-backups` volume (`/backups`
+in the `migrate` container) and fails if that dump fails — a release whose migrations
 rewrite data is not applied without something to go back to. Dumps are deleted after 30
 days, on the first startup past that; `BACKUP_RETENTION_DAYS` changes the window and
 `SKIP_PRE_MIGRATION_BACKUP=1` upgrades without one, for an operator who backs up by
 other means. After the upgrade the app shows the instance owner where the dump is and
 what the migrations changed.
 
-If you call the API from your own scripts or from an MCP client, read
-[breaking changes](breaking-changes.md) for the paths a release removed.
+Attachments are stored in RustFS. An instance set up with MinIO switches to it on the next
+`docker compose up -d`: the `minio` service keeps its name and its `minio-data` volume, and
+RustFS reads the files MinIO wrote in place, with the same credentials. Nothing is copied,
+and the files stay readable by MinIO. The upgrade touches no attachment data, but a copy of
+the volume before it costs one command:
+
+```bash
+docker run --rm -v itsaplan_minio-data:/data -v "$PWD":/out alpine tar czf /out/minio-data.tgz -C /data .
+```
+
+If you call the API from your own scripts or from an MCP client, read the
+[release notes](https://github.com/croffasia/itsaplan/releases) for the paths a release removed.
 
 ## Building from source instead
 

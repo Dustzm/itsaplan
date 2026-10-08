@@ -25,7 +25,7 @@
     },
     "general": {
       "label": "Umum",
-      "description": "Pengaturan bawaan untuk proyek baru."
+      "description": "Workspace pribadi dan pengaturan bawaan untuk proyek baru."
     },
     "authentication": {
       "label": "Autentikasi",
@@ -100,6 +100,10 @@
     "git": {
       "label": "Repositori",
       "description": "Tutup issue saat pull request digabungkan di GitHub, GitLab, Gitea, Forgejo, atau Bitbucket."
+    },
+    "import-export": {
+      "label": "Impor/Ekspor",
+      "description": "Impor issue, komentar, dan label dari instans Plane self-hosted, atau ekspor data proyek ini sebagai JSON."
     },
     "ai-agents": {
       "label": "Agen AI",

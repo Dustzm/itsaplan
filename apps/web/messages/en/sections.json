@@ -25,7 +25,7 @@
     },
     "general": {
       "label": "General",
-      "description": "Defaults for new projects."
+      "description": "Personal workspaces and defaults for new projects."
     },
     "authentication": {
       "label": "Authentication",
@@ -100,6 +100,10 @@
     "git": {
       "label": "Repositories",
       "description": "Close issues when their pull requests merge on GitHub, GitLab, Gitea, Forgejo, or Bitbucket."
+    },
+    "import-export": {
+      "label": "Import/Export",
+      "description": "Bring issues, comments, and labels in from a self-hosted Plane instance, or export this project's data as JSON."
     },
     "ai-agents": {
       "label": "AI Agents",
